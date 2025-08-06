@@ -25,8 +25,11 @@ import postsService from '../services/postsService';
 const { width } = Dimensions.get('window');
 const photoSize = (width - 30) / 3; // 3 photos per row with minimal margins
 
-const StatItem = ({ number, label }) => (
+const StatItem = ({ number, label, icon }) => (
   <View style={styles.statItem}>
+    <View style={styles.statIconContainer}>
+      <Ionicons name={icon} size={20} color="#8b5cf6" />
+    </View>
     <Text style={styles.statNumber}>{number}</Text>
     <Text style={styles.statLabel}>{label}</Text>
   </View>
@@ -41,7 +44,7 @@ const BadgeItem = ({ badge }) => (
 );
 
 export default function ProfileScreen({ navigation }) {
-  const { user, logout } = useAuth();
+  const { user, logout, loadFollowingList } = useAuth();
   const { savedPosts, unsavePost, triggerPostDeleted } = useSavedPosts();
   const [activeTab, setActiveTab] = useState('posts'); // 'posts', 'saved', 'badges'
   const [profileData, setProfileData] = useState(null);
@@ -60,6 +63,9 @@ export default function ProfileScreen({ navigation }) {
   const [deleteModalVisible, setDeleteModalVisible] = useState(false);
   const [postToDelete, setPostToDelete] = useState(null);
   const [deleteLoading, setDeleteLoading] = useState(false);
+  const [xpInfoModalVisible, setXpInfoModalVisible] = useState(false);
+  const [xpWaysModalVisible, setXpWaysModalVisible] = useState(false);
+  const [levelRewardsModalVisible, setLevelRewardsModalVisible] = useState(false);
   
   const handleLogout = () => {
     console.log('🔐 Logout button pressed');
@@ -69,45 +75,79 @@ export default function ProfileScreen({ navigation }) {
   const loadProfileData = async () => {
     try {
       setLoading(true);
+      console.log('🔄 Loading profile data...');
       
       // Tüm profil bilgileri tek seferde getir (gamification dahil)
       const profileResult = await userService.getProfile();
       console.log('📊 Profile data result:', profileResult);
       
-      if (profileResult.success) {
-        // Veri çift sarmalanmış, data.data şeklinde geliyor
-        const { user, stats, recentActivity } = profileResult.data.data;
+      if (profileResult.success && profileResult.data) {
+        // Veri formatını kontrol et
+        let userData, statsData;
         
-        console.log('📊 Extracted user data:', user);
-        console.log('📊 User avatar from backend:', user?.avatar);
+        if (profileResult.data.data) {
+          // Çift sarmalanmış veri
+          const { user, stats, recentActivity } = profileResult.data.data;
+          userData = user;
+          statsData = stats;
+        } else if (profileResult.data.user) {
+          // Tek sarmalanmış veri
+          userData = profileResult.data.user;
+          statsData = profileResult.data.stats;
+        } else {
+          // Direkt veri
+          userData = profileResult.data;
+          statsData = profileResult.data.stats;
+        }
+        
+        console.log('📊 Extracted user data:', userData);
+        console.log('📊 User avatar from backend:', userData?.avatar);
         
         // Profil bilgileri
-        setProfileData(user);
+        setProfileData(userData);
         
         // İstatistikler
-        setUserStats(stats);
+        setUserStats(statsData || {});
         
-        // Seviye ve XP bilgileri
+        // Seviye ve XP bilgileri - NaN kontrolü ekle
+        const userXP = parseInt(userData.xp) || 0;
+        const userLevelNum = parseInt(userData.level) || 1;
+        
         setUserLevel({
-          level: user.level,
-          xp: user.xp,
-          xpToNext: user.xpToNext
+          level: userLevelNum,
+          xp: userXP,
+          xpToNext: userData.xpToNext || (100 - (userXP % 100))
         });
         
         // Rozetler
-        setUserBadges(user.badges || []);
+        setUserBadges(userData.badges || []);
         
-        // Takip istatistikleri - Backend'den gelen verilerle güncelle
+        // Takip istatistikleri - Backend'den gelen stats verilerini kullan
+        const followersCount = statsData?.followersCount || userData.followersCount || 0;
+        const followingCount = statsData?.followingCount || userData.followingCount || 0;
+        
         setFollowStats({
-          followers: user.followersCount || 0,
-          following: user.followingCount || 0,
+          followers: followersCount,
+          following: followingCount,
           isFollowing: false // Kendi profilinde her zaman false
         });
         
-        console.log('📊 Follow stats updated:', {
-          followers: user.followersCount,
-          following: user.followingCount
+        console.log('📊 Follow stats updated from backend stats:', {
+          followers: followersCount,
+          following: followingCount,
+          userFollowingList: userData.following
         });
+      } else {
+        console.error('❌ Profile result not successful:', profileResult);
+        // Hata durumunda mevcut user verilerini kullan
+        if (user) {
+          setProfileData(user);
+          setFollowStats({
+            followers: user.followersCount || 0,
+            following: user.followingCount || 0,
+            isFollowing: false
+          });
+        }
       }
     } catch (error) {
       console.error('❌ Profil verileri yüklenirken hata:', error);
@@ -121,6 +161,7 @@ export default function ProfileScreen({ navigation }) {
         });
       }
     } finally {
+      console.log('✅ Profile data loading completed, setting loading to false');
       setLoading(false);
     }
   };
@@ -128,9 +169,15 @@ export default function ProfileScreen({ navigation }) {
   useEffect(() => {
     console.log('🔄 ProfileScreen useEffect triggered');
     console.log('🔄 Current user data:', { name: user?.name, avatar: user?.avatar });
-    loadProfileData();
-    loadUserPosts();
-  }, [user?.name, user?.avatar]); // Kullanıcı bilgileri değiştiğinde yeniden yükle
+    
+    if (user?._id) {
+      loadProfileData();
+      loadUserPosts();
+      
+      // Following listesini backend'den yükle
+      loadFollowingList();
+    }
+  }, [user?._id]); // Sadece user ID değiştiğinde yeniden yükle
 
   // Focus listener - sayfa her odaklandığında post'ları yenile
   useEffect(() => {
@@ -173,9 +220,24 @@ export default function ProfileScreen({ navigation }) {
   };
 
   const hideDeleteModal = () => {
-    setDeleteModalVisible(false);
-    setPostToDelete(null);
-    setDeleteLoading(false);
+    if (!deleteLoading) {
+      setDeleteModalVisible(false);
+      setPostToDelete(null);
+      setDeleteLoading(false);
+    }
+  };
+
+  // XP Info Functions
+  const showXPInfo = () => {
+    setXpInfoModalVisible(true);
+  };
+
+  const showXPWays = () => {
+    setXpWaysModalVisible(true);
+  };
+
+  const showLevelRewards = () => {
+    setLevelRewardsModalVisible(true);
   };
 
   const handleDeletePost = async () => {
@@ -186,7 +248,14 @@ export default function ProfileScreen({ navigation }) {
       console.log('🗑️ Deleting post:', postToDelete.id);
       console.log('🗑️ Post to delete:', postToDelete);
       
-      const result = await postsService.deletePost(postToDelete.id);
+      // Timeout ile API çağrısı
+      const timeoutPromise = new Promise((_, reject) => 
+        setTimeout(() => reject(new Error('İşlem zaman aşımına uğradı')), 10000)
+      );
+      
+      const deletePromise = postsService.deletePost(postToDelete.id);
+      const result = await Promise.race([deletePromise, timeoutPromise]);
+      
       console.log('🗑️ Delete result:', result);
       
       if (result.success) {
@@ -226,9 +295,17 @@ export default function ProfileScreen({ navigation }) {
     } catch (error) {
       console.error('🗑️ Delete post error:', error);
       hideDeleteModal();
+      
+      let errorMessage = 'Post silinirken bir hata oluştu.';
+      if (error.message === 'İşlem zaman aşımına uğradı') {
+        errorMessage = 'İşlem zaman aşımına uğradı. Lütfen tekrar deneyin.';
+      } else if (error.message.includes('Network')) {
+        errorMessage = 'İnternet bağlantısı hatası. Lütfen bağlantınızı kontrol edin.';
+      }
+      
       Alert.alert(
-        '❌ Bağlantı Hatası',
-        'Post silinirken bağlantı hatası oluştu. Lütfen internet bağlantınızı kontrol edin.',
+        '❌ Silme Başarısız',
+        errorMessage,
         [{ text: 'Tamam', style: 'default' }]
       );
     } finally {
@@ -335,13 +412,16 @@ export default function ProfileScreen({ navigation }) {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
+        <View style={styles.headerContent}>
         <Text style={styles.headerTitle}>Profil</Text>
+          <Text style={styles.headerSubtitle}>Kişisel bilgileriniz</Text>
+        </View>
         <TouchableOpacity 
           onPress={handleLogout}
           style={styles.logoutButton}
           activeOpacity={0.7}
         >
-          <Ionicons name="log-out-outline" size={24} color="#000" />
+          <Ionicons name="log-out-outline" size={24} color="#ef4444" />
         </TouchableOpacity>
       </View>
 
@@ -377,6 +457,14 @@ export default function ProfileScreen({ navigation }) {
             </View>
                );
              })()}
+             
+             {/* Edit Profile Icon */}
+             <TouchableOpacity 
+               style={styles.editProfileIcon}
+               onPress={() => navigation.navigate('EditProfile')}
+             >
+               <Ionicons name="camera" size={16} color="#fff" />
+             </TouchableOpacity>
           </View>
 
           {/* User Info */}
@@ -390,16 +478,56 @@ export default function ProfileScreen({ navigation }) {
           {/* Level and XP */}
           {userLevel && (
             <View style={styles.levelContainer}>
-              <Text style={styles.levelText}>
-                Seviye {userLevel.level} • {userLevel.xp} XP
+              <View style={styles.levelHeader}>
+                <View style={styles.levelInfo}>
+                  <Ionicons name="trophy" size={20} color="#f59e0b" />
+                  <Text style={styles.levelText}>
+                    Seviye {userLevel.level} • {userLevel.xp} XP
+                  </Text>
+                </View>
+                <TouchableOpacity 
+                  style={styles.infoButton}
+                  onPress={() => showXPInfo()}
+                >
+                  <Ionicons name="information-circle-outline" size={20} color="#6b7280" />
+                </TouchableOpacity>
+              </View>
+              
+              {/* XP Progress Bar */}
+              <View style={styles.xpBarContainer}>
+                <View style={styles.xpBar}>
+                  <View 
+                    style={[
+                      styles.xpProgress, 
+                      { width: `${Math.min((userLevel.xp % 100) || 0, 100)}%` }
+                    ]} 
+                  />
+                </View>
+                <Text style={styles.xpProgressText}>
+                  {(userLevel.xp % 100) || 0}/100 XP
+                </Text>
+              </View>
+              
+              <Text style={styles.xpText}>
+                Sonraki seviyeye {Math.max(100 - ((userLevel.xp % 100) || 0), 0)} XP kaldı
               </Text>
-              <View style={styles.xpBar}>
-                <View 
-                  style={[
-                    styles.xpProgress, 
-                    { width: `${(userLevel.xp % 100) || 0}%` }
-                  ]} 
-                />
+              
+              {/* XP Actions */}
+              <View style={styles.xpActions}>
+                <TouchableOpacity 
+                  style={styles.xpActionButton}
+                  onPress={() => showXPWays()}
+                >
+                  <Ionicons name="add-circle-outline" size={16} color="#8b5cf6" />
+                  <Text style={styles.xpActionText}>XP Kazan</Text>
+                </TouchableOpacity>
+                <TouchableOpacity 
+                  style={styles.xpActionButton}
+                  onPress={() => showLevelRewards()}
+                >
+                  <Ionicons name="gift-outline" size={16} color="#f59e0b" />
+                  <Text style={styles.xpActionText}>Ödüller</Text>
+                </TouchableOpacity>
               </View>
             </View>
           )}
@@ -417,9 +545,9 @@ export default function ProfileScreen({ navigation }) {
           {/* Stats */}
           {userStats && (
           <View style={styles.statsContainer}>
-              <StatItem number={userStats.postsCreated || 0} label="Gönderi" />
-              <StatItem number={userStats.commentsAdded || 0} label="Yorum" />
-              <StatItem number={userStats.aiInteractions || 0} label="AI" />
+              <StatItem number={userStats.postsCreated || 0} label="Gönderi" icon="create-outline" />
+              <StatItem number={userStats.commentsAdded || 0} label="Yorum" icon="chatbubble-outline" />
+              <StatItem number={userStats.aiInteractions || 0} label="AI" icon="sparkles-outline" />
             </View>
           )}
 
@@ -429,23 +557,28 @@ export default function ProfileScreen({ navigation }) {
               style={styles.followStatItem}
               onPress={() => {
                 console.log('👥 Followers button pressed');
-                // TODO: Takipçiler sayfasına git
                 Alert.alert('Takipçiler', `${followStats.followers} takipçiniz var`);
               }}
             >
-              <Text style={styles.followStatNumber}>{followStats.followers}</Text>
-              <Text style={styles.followStatLabel}>Takipçi</Text>
+              <View style={styles.followStatContent}>
+                <Ionicons name="people-outline" size={16} color="#6b7280" />
+                <Text style={styles.followStatNumber}>{followStats.followers}</Text>
+                <Text style={styles.followStatLabel}>Takipçi</Text>
+              </View>
             </TouchableOpacity>
+            <View style={styles.followStatsDivider} />
             <TouchableOpacity 
               style={styles.followStatItem}
               onPress={() => {
                 console.log('👥 Following button pressed');
-                // TODO: Takip edilenler sayfasına git
                 Alert.alert('Takip Ettikleriniz', `${followStats.following} kişiyi takip ediyorsunuz`);
               }}
             >
-              <Text style={styles.followStatNumber}>{followStats.following}</Text>
-              <Text style={styles.followStatLabel}>Takip Ettiklerim</Text>
+              <View style={styles.followStatContent}>
+                <Ionicons name="person-add-outline" size={16} color="#6b7280" />
+                <Text style={styles.followStatNumber}>{followStats.following}</Text>
+                <Text style={styles.followStatLabel}>Takip Ettiklerim</Text>
+              </View>
             </TouchableOpacity>
           </View>
 
@@ -462,6 +595,7 @@ export default function ProfileScreen({ navigation }) {
               }
             }}
           >
+            <Ionicons name="settings-outline" size={18} color="#8b5cf6" />
             <Text style={styles.editProfileText}>Profili Düzenle</Text>
           </TouchableOpacity>
 
@@ -483,6 +617,7 @@ export default function ProfileScreen({ navigation }) {
             <Text style={[styles.tabText, activeTab === 'posts' && styles.activeTabText]}>
               Gönderiler
             </Text>
+            {activeTab === 'posts' && <View style={styles.activeTabIndicator} />}
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.tab, activeTab === 'saved' && styles.activeTab]}
@@ -496,6 +631,7 @@ export default function ProfileScreen({ navigation }) {
             <Text style={[styles.tabText, activeTab === 'saved' && styles.activeTabText]}>
               Kaydedilenler ({savedPosts.length})
             </Text>
+            {activeTab === 'saved' && <View style={styles.activeTabIndicator} />}
           </TouchableOpacity>
           <TouchableOpacity 
             style={[styles.tab, activeTab === 'badges' && styles.activeTab]}
@@ -641,10 +777,18 @@ export default function ProfileScreen({ navigation }) {
          visible={deleteModalVisible}
          transparent={true}
          animationType="fade"
-         onRequestClose={hideDeleteModal}
+         onRequestClose={() => !deleteLoading && hideDeleteModal()}
        >
-         <View style={styles.modalOverlay}>
-           <View style={styles.deleteModal}>
+         <TouchableOpacity 
+           style={styles.modalOverlay}
+           activeOpacity={1}
+           onPress={() => !deleteLoading && hideDeleteModal()}
+         >
+           <TouchableOpacity 
+             style={styles.deleteModal}
+             activeOpacity={1}
+             onPress={() => {}} // Modal içine tıklamayı engelle
+           >
              {/* Modal Header */}
              <View style={styles.modalHeader}>
                <View style={styles.modalIconContainer}>
@@ -667,10 +811,10 @@ export default function ProfileScreen({ navigation }) {
              <View style={styles.modalActions}>
                <TouchableOpacity 
                  style={[styles.modalButton, styles.cancelButton]}
-                 onPress={hideDeleteModal}
+                 onPress={() => !deleteLoading && hideDeleteModal()}
                  disabled={deleteLoading}
                >
-                 <Text style={styles.cancelButtonText}>İptal</Text>
+                 <Text style={[styles.cancelButtonText, deleteLoading && styles.disabledText]}>İptal</Text>
                </TouchableOpacity>
                
                <TouchableOpacity 
@@ -688,8 +832,198 @@ export default function ProfileScreen({ navigation }) {
                  )}
                </TouchableOpacity>
              </View>
-           </View>
-         </View>
+           </TouchableOpacity>
+         </TouchableOpacity>
+       </Modal>
+
+       {/* XP Info Modal */}
+       <Modal
+         visible={xpInfoModalVisible}
+         transparent={true}
+         animationType="fade"
+         onRequestClose={() => setXpInfoModalVisible(false)}
+       >
+         <TouchableOpacity 
+           style={styles.modalOverlay}
+           activeOpacity={1}
+           onPress={() => setXpInfoModalVisible(false)}
+         >
+           <TouchableOpacity 
+             style={styles.xpInfoModal}
+             activeOpacity={1}
+             onPress={() => {}}
+           >
+             <View style={styles.modalHeader}>
+               <Ionicons name="trophy" size={32} color="#f59e0b" />
+               <Text style={styles.modalTitle}>XP Sistemi</Text>
+               <Text style={styles.modalSubtitle}>
+                 Deneyim puanları ile seviye atlayın ve ödüller kazanın!
+               </Text>
+             </View>
+
+             <View style={styles.modalContent}>
+               <View style={styles.xpInfoItem}>
+                 <Ionicons name="star" size={20} color="#8b5cf6" />
+                 <View style={styles.xpInfoText}>
+                   <Text style={styles.xpInfoTitle}>Seviye Sistemi</Text>
+                   <Text style={styles.xpInfoDescription}>
+                     Her 100 XP'de bir seviye atlarsınız. Seviye arttıkça daha fazla özellik açılır.
+                   </Text>
+                 </View>
+               </View>
+
+               <View style={styles.xpInfoItem}>
+                 <Ionicons name="trending-up" size={20} color="#22c55e" />
+                 <View style={styles.xpInfoText}>
+                   <Text style={styles.xpInfoTitle}>XP Kazanma</Text>
+                   <Text style={styles.xpInfoDescription}>
+                     Post paylaşın, yorum yapın, AI ile etkileşime geçin ve günlük görevleri tamamlayın.
+                   </Text>
+                 </View>
+               </View>
+
+               <View style={styles.xpInfoItem}>
+                 <Ionicons name="gift" size={20} color="#f59e0b" />
+                 <View style={styles.xpInfoText}>
+                   <Text style={styles.xpInfoTitle}>Ödüller</Text>
+                   <Text style={styles.xpInfoDescription}>
+                     Her seviyede özel rozetler, profil temaları ve premium özellikler kazanın.
+                   </Text>
+                 </View>
+               </View>
+             </View>
+
+             <TouchableOpacity 
+               style={styles.modalButton}
+               onPress={() => setXpInfoModalVisible(false)}
+             >
+               <Text style={styles.modalButtonText}>Anladım</Text>
+             </TouchableOpacity>
+           </TouchableOpacity>
+         </TouchableOpacity>
+       </Modal>
+
+       {/* XP Ways Modal */}
+       <Modal
+         visible={xpWaysModalVisible}
+         transparent={true}
+         animationType="fade"
+         onRequestClose={() => setXpWaysModalVisible(false)}
+       >
+         <TouchableOpacity 
+           style={styles.modalOverlay}
+           activeOpacity={1}
+           onPress={() => setXpWaysModalVisible(false)}
+         >
+           <TouchableOpacity 
+             style={styles.xpWaysModal}
+             activeOpacity={1}
+             onPress={() => {}}
+           >
+             <View style={styles.modalHeader}>
+               <Ionicons name="add-circle" size={32} color="#8b5cf6" />
+               <Text style={styles.modalTitle}>XP Kazanma Yolları</Text>
+               <Text style={styles.modalSubtitle}>
+                 Deneyim puanlarınızı artırmak için yapabilecekleriniz:
+               </Text>
+             </View>
+
+             <View style={styles.modalContent}>
+               {[
+                 { icon: 'create', title: 'Post Paylaş', xp: '+10 XP', color: '#22c55e' },
+                 { icon: 'chatbubble', title: 'Yorum Yap', xp: '+5 XP', color: '#3b82f6' },
+                 { icon: 'heart', title: 'Beğeni Ver', xp: '+2 XP', color: '#ef4444' },
+                 { icon: 'sparkles', title: 'AI Kullan', xp: '+15 XP', color: '#8b5cf6' },
+                 { icon: 'calendar', title: 'Günlük Giriş', xp: '+5 XP', color: '#f59e0b' },
+                 { icon: 'people', title: 'Takip Et', xp: '+3 XP', color: '#06b6d4' },
+               ].map((item, index) => (
+                 <View key={index} style={styles.xpWayItem}>
+                   <View style={[styles.xpWayIcon, { backgroundColor: item.color + '20' }]}>
+                     <Ionicons name={item.icon} size={20} color={item.color} />
+                   </View>
+                   <View style={styles.xpWayText}>
+                     <Text style={styles.xpWayTitle}>{item.title}</Text>
+                   </View>
+                   <Text style={[styles.xpWayXP, { color: item.color }]}>{item.xp}</Text>
+                 </View>
+               ))}
+             </View>
+
+             <TouchableOpacity 
+               style={styles.modalButton}
+               onPress={() => setXpWaysModalVisible(false)}
+             >
+               <Text style={styles.modalButtonText}>Tamam</Text>
+             </TouchableOpacity>
+           </TouchableOpacity>
+         </TouchableOpacity>
+       </Modal>
+
+       {/* Level Rewards Modal */}
+       <Modal
+         visible={levelRewardsModalVisible}
+         transparent={true}
+         animationType="fade"
+         onRequestClose={() => setLevelRewardsModalVisible(false)}
+       >
+         <TouchableOpacity 
+           style={styles.modalOverlay}
+           activeOpacity={1}
+           onPress={() => setLevelRewardsModalVisible(false)}
+         >
+           <TouchableOpacity 
+             style={styles.levelRewardsModal}
+             activeOpacity={1}
+             onPress={() => {}}
+           >
+             <View style={styles.modalHeader}>
+               <Ionicons name="gift" size={32} color="#f59e0b" />
+               <Text style={styles.modalTitle}>Seviye Ödülleri</Text>
+               <Text style={styles.modalSubtitle}>
+                 Seviye atladıkça kazanacağınız ödüller:
+               </Text>
+             </View>
+
+             <View style={styles.modalContent}>
+               {[
+                 { level: 1, reward: 'Başlangıç Rozeti', unlocked: true },
+                 { level: 2, reward: 'Profil Teması', unlocked: userLevel?.level >= 2 },
+                 { level: 3, reward: 'Özel Emoji Seti', unlocked: userLevel?.level >= 3 },
+                 { level: 5, reward: 'Premium Özellikler', unlocked: userLevel?.level >= 5 },
+                 { level: 10, reward: 'VIP Rozet', unlocked: userLevel?.level >= 10 },
+               ].map((item, index) => (
+                 <View key={index} style={styles.rewardItem}>
+                   <View style={styles.rewardIcon}>
+                     <Ionicons 
+                       name={item.unlocked ? "checkmark-circle" : "lock-closed"} 
+                       size={24} 
+                       color={item.unlocked ? "#22c55e" : "#9ca3af"} 
+                     />
+                   </View>
+                   <View style={styles.rewardText}>
+                     <Text style={styles.rewardTitle}>Seviye {item.level}</Text>
+                     <Text style={styles.rewardDescription}>{item.reward}</Text>
+                   </View>
+                   <View style={styles.rewardStatus}>
+                     <Text style={[
+                       styles.rewardStatusText, 
+                       { color: item.unlocked ? "#22c55e" : "#9ca3af" }
+                     ]}>
+                       {item.unlocked ? "Kazanıldı" : "Kilitli"}
+                     </Text>
+                   </View>
+                 </View>
+               ))}
+             </View>
+
+             <TouchableOpacity 
+               style={styles.modalButton}
+               onPress={() => setLevelRewardsModalVisible(false)}
+             >
+               <Text style={styles.modalButtonText}>Tamam</Text>
+             </TouchableOpacity>
+           </TouchableOpacity>
+         </TouchableOpacity>
        </Modal>
     </SafeAreaView>
   );
@@ -705,19 +1039,34 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 15,
-    paddingTop: Platform.OS === 'android' ? 35 : 15,
+    paddingVertical: 16,
+    paddingTop: Platform.OS === 'android' ? 35 : 16,
+    backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: '#f3f4f6',
+  },
+  headerContent: {
+    flex: 1,
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: '#000',
+    color: '#111827',
+    marginBottom: 2,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: '#6b7280',
   },
   logoutButton: {
-    padding: 8,
-    borderRadius: 8,
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(239, 68, 68, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: 'rgba(239, 68, 68, 0.2)',
   },
   loadingContainer: {
     flex: 1,
@@ -742,17 +1091,34 @@ const styles = StyleSheet.create({
     marginBottom: 20,
   },
   profilePicture: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    borderWidth: 4,
+    borderColor: '#f3f4f6',
   },
   initialsOverlay: {
-    width: 100,
-    height: 100,
+    width: 120,
+    height: 120,
     backgroundColor: '#8b5cf6',
-    borderRadius: 50,
+    borderRadius: 60,
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 4,
+    borderColor: '#f3f4f6',
+  },
+  editProfileIcon: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#8b5cf6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#fff',
   },
   initials: {
     color: '#fff',
@@ -772,25 +1138,79 @@ const styles = StyleSheet.create({
   },
   levelContainer: {
     alignItems: 'center',
-    marginBottom: 15,
+    marginBottom: 20,
+    backgroundColor: '#f9fafb',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderRadius: 16,
+    width: '100%',
+  },
+  levelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    width: '100%',
+    marginBottom: 12,
+  },
+  levelInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
   },
   levelText: {
     fontSize: 16,
     fontWeight: '600',
-    color: '#8b5cf6',
+    color: '#111827',
+  },
+  infoButton: {
+    padding: 4,
+  },
+  xpBarContainer: {
+    width: '100%',
     marginBottom: 8,
   },
   xpBar: {
-    width: 200,
-    height: 8,
+    width: '100%',
+    height: 12,
     backgroundColor: '#e5e7eb',
-    borderRadius: 4,
+    borderRadius: 6,
     overflow: 'hidden',
+    marginBottom: 4,
   },
   xpProgress: {
     height: '100%',
     backgroundColor: '#8b5cf6',
-    borderRadius: 4,
+    borderRadius: 6,
+  },
+  xpProgressText: {
+    fontSize: 12,
+    color: '#6b7280',
+    textAlign: 'center',
+  },
+  xpText: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginBottom: 12,
+  },
+  xpActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  xpActionButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    backgroundColor: '#f8fafc',
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+    gap: 4,
+  },
+  xpActionText: {
+    fontSize: 12,
+    fontWeight: '500',
+    color: '#374151',
   },
   userDetails: {
     flexDirection: 'row',
@@ -812,28 +1232,58 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     width: '100%',
     marginBottom: 25,
+    backgroundColor: '#fff',
+    paddingHorizontal: 20,
+    paddingVertical: 16,
+    borderRadius: 16,
+    borderWidth: 1,
+    borderColor: '#f3f4f6',
   },
   statItem: {
     alignItems: 'center',
+    flex: 1,
+  },
+  statIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   statNumber: {
     fontSize: 20,
     fontWeight: 'bold',
-    color: '#000',
+    color: '#111827',
+    marginBottom: 4,
   },
   statLabel: {
-    fontSize: 14,
-    color: '#9ca3af',
-    marginTop: 2,
+    fontSize: 12,
+    color: '#6b7280',
+    textAlign: 'center',
   },
   editProfileButton: {
-    backgroundColor: '#8b5cf6',
-    paddingHorizontal: 40,
+    backgroundColor: '#fff',
+    paddingHorizontal: 24,
     paddingVertical: 12,
-    borderRadius: 25,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   editProfileText: {
-    color: '#fff',
+    color: '#8b5cf6',
     fontSize: 16,
     fontWeight: '600',
   },
@@ -842,47 +1292,77 @@ const styles = StyleSheet.create({
     justifyContent: 'space-around',
     paddingVertical: 20,
     borderTopWidth: 1,
-    borderTopColor: '#e5e7eb',
+    borderTopColor: '#f3f4f6',
     marginTop: 20,
+    backgroundColor: '#fff',
+    borderRadius: 16,
+    marginHorizontal: 20,
   },
   followStatItem: {
     alignItems: 'center',
     flex: 1,
   },
+  followStatContent: {
+    alignItems: 'center',
+    gap: 4,
+  },
+  followStatsDivider: {
+    width: 1,
+    height: 40,
+    backgroundColor: '#f3f4f6',
+  },
   followStatNumber: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: '#000',
+    color: '#111827',
   },
   followStatLabel: {
-    fontSize: 14,
-    color: '#9ca3af',
-    marginTop: 4,
+    fontSize: 12,
+    color: '#6b7280',
   },
   tabsContainer: {
     flexDirection: 'row',
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: '#f3f4f6',
+    backgroundColor: '#fff',
+    marginHorizontal: 20,
+    marginTop: 20,
+    borderRadius: 12,
+    paddingHorizontal: 4,
+    paddingVertical: 4,
   },
   tab: {
     flex: 1,
     flexDirection: 'row',
     justifyContent: 'center',
     alignItems: 'center',
-    paddingVertical: 15,
+    paddingVertical: 12,
+    paddingHorizontal: 16,
     gap: 8,
+    borderRadius: 8,
+    position: 'relative',
   },
   activeTab: {
-    borderBottomWidth: 2,
-    borderBottomColor: '#8b5cf6',
+    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+  },
+  activeTabIndicator: {
+    position: 'absolute',
+    bottom: -4,
+    left: '50%',
+    marginLeft: -8,
+    width: 16,
+    height: 3,
+    backgroundColor: '#8b5cf6',
+    borderRadius: 2,
   },
   tabText: {
     fontSize: 14,
+    color: '#6b7280',
     fontWeight: '500',
-    color: '#9ca3af',
   },
   activeTabText: {
     color: '#8b5cf6',
+    fontWeight: '600',
   },
   photoGrid: {
     flexDirection: 'row',
@@ -1101,7 +1581,151 @@ const styles = StyleSheet.create({
      fontWeight: '600',
      color: '#fff',
    },
-   disabledButton: {
-     opacity: 0.6,
+     disabledButton: {
+    opacity: 0.6,
+  },
+  disabledText: {
+    opacity: 0.6,
+  },
+  // XP Modal Styles
+  xpInfoModal: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    margin: 20,
+    width: '90%',
+    maxWidth: 400,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  xpWaysModal: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    margin: 20,
+    width: '90%',
+    maxWidth: 400,
+    maxHeight: '80%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  levelRewardsModal: {
+    backgroundColor: '#fff',
+    borderRadius: 20,
+    padding: 24,
+    margin: 20,
+    width: '90%',
+    maxWidth: 400,
+    maxHeight: '80%',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 10 },
+    shadowOpacity: 0.25,
+    shadowRadius: 20,
+    elevation: 10,
+  },
+  xpInfoItem: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+    gap: 12,
+  },
+  xpInfoText: {
+    flex: 1,
+  },
+  xpInfoTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#111827',
+    marginBottom: 4,
+  },
+  xpInfoDescription: {
+    fontSize: 14,
+    color: '#6b7280',
+    lineHeight: 20,
+  },
+  xpWayItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    marginBottom: 8,
+    gap: 12,
+  },
+  xpWayIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  xpWayText: {
+    flex: 1,
+  },
+  xpWayTitle: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: '#111827',
+  },
+  xpWayXP: {
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  rewardItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    marginBottom: 8,
+    gap: 12,
+  },
+  rewardIcon: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  rewardText: {
+    flex: 1,
+  },
+  rewardTitle: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#111827',
+  },
+  rewardDescription: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 2,
+  },
+  rewardStatus: {
+    alignItems: 'flex-end',
+  },
+  rewardStatusText: {
+    fontSize: 12,
+    fontWeight: '500',
+  },
+  modalButton: {
+    backgroundColor: '#8b5cf6',
+    paddingVertical: 14,
+    paddingHorizontal: 24,
+    borderRadius: 12,
+    alignItems: 'center',
+    marginTop: 16,
+  },
+  modalButtonText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: '#fff',
   },
 });

@@ -15,6 +15,7 @@ export const useAuth = () => {
 export const AuthProvider = ({ children }) => {
   const [user, setUser] = useState(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [needsProfileCompletion, setNeedsProfileCompletion] = useState(false);
 
   useEffect(() => {
     checkAuthState();
@@ -33,6 +34,9 @@ export const AuthProvider = ({ children }) => {
         
         setUser(userData);
         
+        // Profil tamamlama kontrolü
+        checkProfileCompletion(userData);
+        
         // WebSocket bağlantısını geçici olarak devre dışı bırak
         // const token = await authService.getToken();
         // if (token && !socketService.isSocketConnected()) {
@@ -46,6 +50,24 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  // Profil tamamlama kontrolü
+  const checkProfileCompletion = (userData) => {
+    if (!userData) return;
+    
+    const needsCompletion = !userData.name || 
+                           userData.name.trim() === '' || 
+                           !userData.avatar || 
+                           userData.avatar.trim() === '';
+    
+    console.log('🔍 Profile completion check:', {
+      name: userData.name,
+      avatar: userData.avatar,
+      needsCompletion
+    });
+    
+    setNeedsProfileCompletion(needsCompletion);
+  };
+
   const login = async (email, password) => {
     try {
       const result = await authService.login(email, password);
@@ -56,7 +78,12 @@ export const AuthProvider = ({ children }) => {
         if (userData) {
           userData.isOnboardingCompleted = true;
         }
-        setUser(userData);
+        
+        // Toast gösterimi için user state'ini geciktir
+        setTimeout(() => {
+          setUser(userData);
+          checkProfileCompletion(userData);
+        }, 3000);
         
         // WebSocket bağlantısını geçici olarak devre dışı bırak
         // const token = await authService.getToken();
@@ -82,7 +109,12 @@ export const AuthProvider = ({ children }) => {
         if (newUserData) {
           newUserData.isOnboardingCompleted = true;
         }
-        setUser(newUserData);
+        
+        // Toast gösterimi için user state'ini geciktir
+        setTimeout(() => {
+          setUser(newUserData);
+          checkProfileCompletion(newUserData);
+        }, 3000);
       }
       
       return result;
@@ -131,6 +163,9 @@ export const AuthProvider = ({ children }) => {
       setUser(userData);
       console.log('✅ User state updated');
       
+      // Profil tamamlama kontrolü
+      checkProfileCompletion(userData);
+      
       // AsyncStorage'a da kaydet
       await authService.updateUser(userData);
       console.log('✅ User saved to AsyncStorage');
@@ -144,13 +179,60 @@ export const AuthProvider = ({ children }) => {
     }
   };
 
+  const updateFollowingList = (userId, isFollowing) => {
+    if (!user) return;
+    
+    const updatedUser = { ...user };
+    if (!updatedUser.following) {
+      updatedUser.following = [];
+    }
+    
+    if (isFollowing) {
+      // Kullanıcıyı following listesine ekle
+      if (!updatedUser.following.includes(userId)) {
+        updatedUser.following = [...updatedUser.following, userId];
+      }
+    } else {
+      // Kullanıcıyı following listesinden çıkar
+      updatedUser.following = updatedUser.following.filter(id => id !== userId);
+    }
+    
+    setUser(updatedUser);
+    console.log('✅ Following list updated:', updatedUser.following);
+  };
+
+  // Backend'den following listesini yükle
+  const loadFollowingList = async () => {
+    try {
+      if (!user?._id) return;
+      
+      console.log('🔄 Loading following list from backend...');
+      const userService = require('../services/userService').default;
+      const result = await userService.getMyFollowing();
+      
+      if (result.success) {
+        const followingIds = result.data;
+        const updatedUser = { ...user, following: followingIds };
+        setUser(updatedUser);
+        console.log('✅ Following list loaded from backend:', followingIds);
+      } else {
+        console.error('❌ Failed to load following list:', result.error);
+      }
+    } catch (error) {
+      console.error('❌ Error loading following list:', error);
+    }
+  };
+
   const value = {
     user,
     isLoading,
+    needsProfileCompletion,
     login,
     register,
     logout,
     updateUser,
+    updateFollowingList,
+    loadFollowingList,
   };
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

@@ -6,6 +6,7 @@ import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { SavedPostsProvider } from './contexts/SavedPostsContext';
 import TabNavigation from './navigation/TabNavigation';
 import AuthNavigation from './navigation/AuthNavigation';
+import ProfileCompletionNavigation from './navigation/ProfileCompletionNavigation';
 import { View, ActivityIndicator, SafeAreaView, Platform } from 'react-native';
 
 // Basit event emitter oluştur
@@ -38,7 +39,7 @@ class SimpleEventEmitter {
 global.eventEmitter = new SimpleEventEmitter();
 
 function AppContent() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, needsProfileCompletion } = useAuth();
 
   if (isLoading) {
     return (
@@ -50,7 +51,24 @@ function AppContent() {
     );
   }
 
-  // Onboarding kaldırıldı - direkt ana uygulamaya yönlendir
+  // Profil tamamlama kontrolü
+  if (user && needsProfileCompletion) {
+    return (
+      <View style={{ flex: 1, backgroundColor: '#fff' }}>
+        <StatusBar 
+          style="dark" 
+          backgroundColor="#fff" 
+          translucent={true}
+          barStyle="dark-content"
+        />
+        <SafeAreaView style={{ flex: 1, backgroundColor: '#fff' }}>
+          <NavigationContainer>
+            <ProfileCompletionNavigation />
+          </NavigationContainer>
+        </SafeAreaView>
+      </View>
+    );
+  }
 
   return (
     <View style={{ flex: 1, backgroundColor: '#fff' }}>

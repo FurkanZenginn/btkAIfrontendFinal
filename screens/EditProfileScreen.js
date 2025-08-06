@@ -17,7 +17,7 @@ import * as ImagePicker from 'expo-image-picker';
 import userService from '../services/userService';
 import { useAuth } from '../contexts/AuthContext';
 
-export default function EditProfileScreen({ navigation }) {
+export default function EditProfileScreen({ navigation, route }) {
   const { user, updateUser } = useAuth();
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -25,6 +25,9 @@ export default function EditProfileScreen({ navigation }) {
     name: user?.name || '',
     avatar: user?.avatar || '',
   });
+  
+  // Profil tamamlama modu kontrolü
+  const isProfileCompletion = route?.params?.isProfileCompletion || false;
 
   useEffect(() => {
     loadProfileData();
@@ -151,6 +154,12 @@ export default function EditProfileScreen({ navigation }) {
       return;
     }
 
+    // Profil tamamlama modunda avatar da zorunlu
+    if (isProfileCompletion && !profileData.avatar) {
+      Alert.alert('Hata', 'Profil fotoğrafı seçmeniz gereklidir.');
+      return;
+    }
+
     try {
       setSaving(true);
       
@@ -207,16 +216,35 @@ export default function EditProfileScreen({ navigation }) {
         // Auth context'teki user'ı güncelle
         await updateUser(userDataToUpdate);
         
-        Alert.alert(
-          'Başarılı', 
-          'Profil başarıyla güncellendi!',
-          [
-            {
-              text: 'Tamam',
-              onPress: () => navigation.goBack(),
-            },
-          ]
-        );
+        // Profil tamamlama modunda ise ana sayfaya yönlendir
+        if (isProfileCompletion) {
+          Alert.alert(
+            'Hoş Geldin!', 
+            'Profil bilgileriniz başarıyla tamamlandı. Ana sayfaya yönlendiriliyorsunuz.',
+            [
+              {
+                text: 'Tamam',
+                onPress: () => {
+                  // Profil tamamlama modunu kapat
+                  // AuthContext'teki needsProfileCompletion'ı false yap
+                  // Bu sayede App.js otomatik olarak TabNavigation'a yönlendirecek
+                  // Bu işlem AuthContext'teki updateUser fonksiyonunda zaten yapılıyor
+                },
+              },
+            ]
+          );
+        } else {
+          Alert.alert(
+            'Başarılı', 
+            'Profil başarıyla güncellendi!',
+            [
+              {
+                text: 'Tamam',
+                onPress: () => navigation.goBack(),
+              },
+            ]
+          );
+        }
       } else {
         Alert.alert('Hata', result.error || result.message || 'Profil güncellenirken bir hata oluştu.');
       }
@@ -255,10 +283,15 @@ export default function EditProfileScreen({ navigation }) {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => navigation.goBack()}>
-          <Ionicons name="arrow-back" size={24} color="#000" />
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Profili Düzenle</Text>
+        {!isProfileCompletion && (
+          <TouchableOpacity onPress={() => navigation.goBack()}>
+            <Ionicons name="arrow-back" size={24} color="#000" />
+          </TouchableOpacity>
+        )}
+        {isProfileCompletion && <View style={{ width: 24 }} />}
+        <Text style={styles.headerTitle}>
+          {isProfileCompletion ? 'Profil Bilgilerini Tamamla' : 'Profili Düzenle'}
+        </Text>
         <TouchableOpacity 
           onPress={handleSave}
           disabled={saving}
@@ -267,12 +300,24 @@ export default function EditProfileScreen({ navigation }) {
           {saving ? (
             <ActivityIndicator size="small" color="#8b5cf6" />
           ) : (
-            <Text style={styles.saveButtonText}>Kaydet</Text>
+            <Text style={styles.saveButtonText}>
+              {isProfileCompletion ? 'Tamamla' : 'Kaydet'}
+            </Text>
           )}
         </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+        {/* Profil Tamamlama Açıklaması */}
+        {isProfileCompletion && (
+          <View style={styles.completionInfo}>
+            <Ionicons name="information-circle" size={24} color="#8b5cf6" />
+            <Text style={styles.completionText}>
+              Hoş geldin! Profil bilgilerinizi tamamlayarak uygulamayı kullanmaya başlayabilirsiniz.
+            </Text>
+          </View>
+        )}
+        
         {/* Avatar Section */}
         <View style={styles.avatarSection}>
           <Text style={styles.sectionTitle}>Profil Fotoğrafı</Text>
@@ -468,5 +513,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: '#9ca3af',
     marginTop: 4,
+  },
+  completionInfo: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: '#f3f4f6',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 20,
+    gap: 12,
+  },
+  completionText: {
+    flex: 1,
+    fontSize: 14,
+    color: '#374151',
+    lineHeight: 20,
   },
 }); 

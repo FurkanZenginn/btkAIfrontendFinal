@@ -23,6 +23,47 @@ class PostsService {
     }
   }
 
+  // Yeni gönderileri kontrol et
+  async checkNewPosts(lastSeenPostId = null) {
+    try {
+      console.log('🔍 checkNewPosts function called');
+      console.log('🔍 Last seen post ID:', lastSeenPostId);
+      
+      // Backend'de /latest endpoint'i sorun çıkarıyor, normal posts endpoint'ini kullan
+      const url = lastSeenPostId 
+        ? `${API_ENDPOINTS.POSTS.LIST}?lastSeenPostId=${lastSeenPostId}&limit=5`
+        : `${API_ENDPOINTS.POSTS.LIST}?limit=5`;
+      
+      console.log('🌐 Calling API:', url);
+      
+      const response = await api.get(url);
+      console.log('📡 Check new posts response:', response);
+      
+      // Backend'den gelen veriyi kontrol et
+      if (response.success && response.data) {
+        const newPosts = response.data.posts || response.data;
+        const currentPostIds = new Set(); // Mevcut post ID'lerini set'e ekle
+        
+        // Yeni post var mı kontrol et
+        const hasNewPosts = newPosts.length > 0 && lastSeenPostId && 
+          newPosts.some(post => post._id !== lastSeenPostId);
+        
+        return {
+          success: true,
+          data: {
+            hasNewPosts: hasNewPosts,
+            newPosts: newPosts
+          }
+        };
+      }
+      
+      return response;
+    } catch (error) {
+      console.error('❌ Check new posts error:', error);
+      return { success: false, error: 'Yeni gönderiler kontrol edilirken hata oluştu.' };
+    }
+  }
+
   // Yeni post oluştur (görsel ile)
   async createPostWithImage(postData, imageFile = null) {
     try {
@@ -41,6 +82,12 @@ class PostsService {
       if (postData.caption) formData.append('caption', postData.caption);
       if (postData.postType) formData.append('postType', postData.postType);
       
+      // Etiketleri ekle (varsa) - Backend topicTags field'ını bekliyor
+      if (postData.tags && postData.tags.length > 0) {
+        formData.append('topicTags', postData.tags.join(','));
+        console.log('🏷️ Tags added to FormData as topicTags:', postData.tags);
+      }
+      
       // User bilgilerini al
       const user = await authService.getUser();
       console.log('👤 User data:', user);
@@ -55,12 +102,15 @@ class PostsService {
       
       // Görsel dosyasını ekle (backend image field'ı ile bekliyor)
       if (imageFile) {
-        formData.append('image', {
+        // Görsel dosyasını doğru formatta ekle
+        const imageData = {
           uri: imageFile.uri,
           type: imageFile.type || 'image/jpeg',
           name: imageFile.name || 'image.jpg',
-        });
-        console.log('📸 Image appended to FormData:', imageFile);
+        };
+        
+        formData.append('image', imageData);
+        console.log('📸 Image appended to FormData:', imageData);
       } else {
         console.log('⚠️ No image provided');
         return { success: false, error: 'Görsel zorunludur' };
@@ -70,6 +120,7 @@ class PostsService {
         content: postData.content,
         caption: postData.caption,
         postType: postData.postType,
+        tags: postData.tags,
         topicTags: postData.topicTags,
         isFromAI: postData.isFromAI,
         aiPrompt: postData.aiPrompt,
@@ -149,6 +200,12 @@ class PostsService {
         content: postData.content, // Backend 'content' field'ını bekliyor
       };
 
+      // Etiketleri ekle (varsa) - Backend topicTags field'ını bekliyor
+      if (postData.tags && postData.tags.length > 0) {
+        requestData.topicTags = postData.tags.join(',');
+        console.log('🏷️ Tags added to request as topicTags:', postData.tags);
+      }
+
       console.log('📝 Creating text-only post with data:', requestData);
       
       const response = await api.post(
@@ -186,64 +243,26 @@ class PostsService {
       
       const token = await authService.getToken();
       console.log('🗑️ Token available:', !!token);
-      console.log('🗑️ Token value:', token);
       
       if (!token) {
         console.error('🗑️ No token available for delete');
         return { success: false, error: 'Kimlik doğrulama gerekli' };
       }
       
-      const endpoint = API_ENDPOINTS.POSTS.DELETE(postId);
-      console.log('🗑️ Delete endpoint:', endpoint);
+      // API endpoint'ini kullan
+      const response = await api.delete(
+        API_ENDPOINTS.POSTS.DELETE(postId),
+        token
+      );
       
-      // API base URL'yi al
-      const getApiBaseUrl = () => {
-        const { Platform } = require('react-native');
-        
-        if (__DEV__) {
-          if (Platform.OS === 'web') {
-            return 'http://localhost:5000/api';
-          }
-          if (Platform.OS === 'android') {
-            return 'http://10.0.2.2:5000/api';
-          }
-          if (Platform.OS === 'ios') {
-            return 'http://localhost:5000/api';
-          }
-          return 'http://10.0.2.2:5000/api';
-        }
-        
-        return 'https://your-production-api.com/api';
-      };
-
-      const API_BASE_URL = getApiBaseUrl();
-      const fullUrl = `${API_BASE_URL}${endpoint}`;
-      console.log('🗑️ Full URL:', fullUrl);
+      console.log('🗑️ Delete response:', response);
       
-      // Manuel fetch ile deneyelim
-      const response = await fetch(fullUrl, {
-        method: 'DELETE',
-        headers: {
-          'Authorization': `Bearer ${token}`,
-          'Content-Type': 'application/json',
-        },
-      });
-      
-      console.log('🗑️ Raw response status:', response.status);
-      console.log('🗑️ Raw response ok:', response.ok);
-      
-      const result = await response.json();
-      console.log('🗑️ Raw response data:', result);
-      
-      if (response.ok) {
+      if (response.success) {
         console.log('🗑️ Delete successful');
-        return { success: true, data: result };
+        return response;
       } else {
-        console.error('🗑️ Delete failed:', result);
-        return { 
-          success: false, 
-          error: result.error || result.message || 'Post silinirken bir hata oluştu.' 
-        };
+        console.error('🗑️ Delete failed:', response.error);
+        return response;
       }
     } catch (error) {
       console.error('🗑️ Delete post error:', error);
@@ -354,6 +373,56 @@ class PostsService {
     } catch (error) {
       console.error('Search posts error:', error);
       return { success: false, error: 'Post arama yapılırken bir hata oluştu.' };
+    }
+  }
+
+  // Gelişmiş post arama (yeni API)
+  async searchPostsAdvanced(params = {}) {
+    try {
+      console.log('🔍 Advanced search params:', params);
+      
+      const token = await authService.getToken();
+      
+      // Query parametrelerini oluştur
+      const queryParams = new URLSearchParams();
+      
+      if (params.q) queryParams.append('q', params.q);
+      if (params.tags) queryParams.append('tags', params.tags);
+      if (params.category) queryParams.append('category', params.category);
+      if (params.difficulty) queryParams.append('difficulty', params.difficulty);
+      if (params.page) queryParams.append('page', params.page);
+      if (params.limit) queryParams.append('limit', params.limit);
+      
+      const url = `/posts/search?${queryParams.toString()}`;
+      console.log('🔍 Search URL:', url);
+      
+      const response = await api.get(url, token);
+      console.log('🔍 Search response:', response);
+      
+      return response;
+    } catch (error) {
+      console.error('❌ Advanced search error:', error);
+      return { success: false, error: 'Gelişmiş arama yapılırken bir hata oluştu.' };
+    }
+  }
+
+  // Popüler etiketleri getir
+  async getPopularTags(limit = 20) {
+    try {
+      console.log('🏷️ Getting popular tags, limit:', limit);
+      
+      const token = await authService.getToken();
+      const url = `${API_ENDPOINTS.POSTS.POPULAR_TAGS}?limit=${limit}`;
+      
+      console.log('🏷️ Popular tags URL:', url);
+      
+      const response = await api.get(url, token);
+      console.log('🏷️ Popular tags response:', response);
+      
+      return response;
+    } catch (error) {
+      console.error('❌ Get popular tags error:', error);
+      return { success: false, error: 'Popüler etiketler yüklenirken bir hata oluştu.' };
     }
   }
 

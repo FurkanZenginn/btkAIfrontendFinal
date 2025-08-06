@@ -9,8 +9,10 @@ import {
   ActivityIndicator,
   RefreshControl,
   Platform,
+  BackHandler,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
+import { LinearGradient } from 'expo-linear-gradient';
 import { FONT_STYLES } from '../utils/fonts';
 import HapBilgiCard from '../components/HapBilgiCard';
 import SimilarQuestionsModal from '../components/SimilarQuestionsModal';
@@ -65,6 +67,18 @@ export default function HapBilgiScreen({ navigation }) {
     setRefreshing(false);
   };
 
+  // YENİ: Tüm verileri sıfırla
+  const handleResetAllData = async () => {
+    try {
+      console.log('🔄 Tüm Hap Bilgi verileri sıfırlanıyor...');
+      await hapBilgiService.resetAllHapBilgiler();
+      await loadHapBilgiler(); // Verileri yeniden yükle
+      console.log('✅ Tüm veriler sıfırlandı ve yeniden yüklendi');
+    } catch (error) {
+      console.error('❌ Veri sıfırlama hatası:', error);
+    }
+  };
+
   // Benzer sorular fonksiyonu
   const handleSimilarQuestions = (hapBilgiId) => {
     console.log('🔍 handleSimilarQuestions çağrıldı:', hapBilgiId);
@@ -87,19 +101,58 @@ export default function HapBilgiScreen({ navigation }) {
     loadHapBilgiler();
   }, []);
 
+  // Screen focus olduğunda verileri yeniden yükle
+  useEffect(() => {
+    const unsubscribe = navigation.addListener('focus', () => {
+      console.log('🔄 HapBilgiScreen focus oldu, veriler yeniden yükleniyor...');
+      loadHapBilgiler();
+    });
+
+    return unsubscribe;
+  }, [navigation]);
+
+  // Hardware back button handler
+  useEffect(() => {
+    const backHandler = BackHandler.addEventListener('hardwareBackPress', () => {
+      console.log('🔙 Hardware back button pressed');
+      if (navigation.canGoBack()) {
+        navigation.goBack();
+        return true;
+      } else {
+        navigation.navigate('ToolsMain');
+        return true;
+      }
+    });
+
+    return () => backHandler.remove();
+  }, [navigation]);
+
   return (
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}
-          onPress={() => navigation.goBack()}
+          onPress={() => {
+            console.log('🔙 Geri butonuna tıklandı');
+            if (navigation.canGoBack()) {
+              navigation.goBack();
+            } else {
+              navigation.navigate('ToolsMain');
+            }
+          }}
         >
-          <Ionicons name="arrow-back" size={24} color="#8b5cf6" />
+          <Ionicons name="arrow-back" size={24} color="#374151" />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>HAP BİLGİ</Text>
-        <TouchableOpacity style={styles.searchButton}>
-          <Ionicons name="search-outline" size={24} color="#8b5cf6" />
+        <View style={styles.headerContent}>
+          <Text style={styles.headerTitle}>HAP BİLGİ</Text>
+          <Text style={styles.headerSubtitle}>AI Destekli Öğrenme</Text>
+        </View>
+        <TouchableOpacity 
+          style={styles.searchButton}
+          onPress={handleResetAllData}
+        >
+          <Ionicons name="refresh" size={24} color="#374151" />
         </TouchableOpacity>
       </View>
 
@@ -110,15 +163,7 @@ export default function HapBilgiScreen({ navigation }) {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
-        {/* Açıklama */}
-        <View style={styles.infoSection}>
-          <Ionicons name="bulb" size={32} color="#8b5cf6" />
-          <Text style={styles.infoTitle}>Hap Bilgi Nedir?</Text>
-          <Text style={styles.infoText}>
-            AI analizi sonucu oluşturulan özet bilgiler. Soru sorduğunuzda AI konuyu analiz edip 
-            size özel hap bilgiler oluşturur.
-          </Text>
-        </View>
+        
 
         {/* Hap Bilgi Kartları */}
         {loading ? (
@@ -139,18 +184,30 @@ export default function HapBilgiScreen({ navigation }) {
           </View>
         ) : (
           <View style={styles.emptyState}>
-            <Ionicons name="bulb-outline" size={64} color="#9ca3af" />
-            <Text style={styles.emptyStateTitle}>Henüz hap bilgi yok</Text>
-            <Text style={styles.emptyStateText}>
-              AI'ya soru sorduğunuzda analiz edip hap bilgiler önerecek
-            </Text>
-            <TouchableOpacity 
-              style={styles.aiButton}
-              onPress={() => navigation.navigate('Chat')}
+            <LinearGradient
+              colors={['#f3f4f6', '#e5e7eb']}
+              style={styles.emptyStateGradient}
             >
-              <Ionicons name="chatbubble-outline" size={20} color="#fff" />
-              <Text style={styles.aiButtonText}>AI'ya Soru Sor</Text>
-            </TouchableOpacity>
+              <View style={styles.emptyStateIconContainer}>
+                <Ionicons name="sparkles-outline" size={64} color="#8b5cf6" />
+              </View>
+              <Text style={styles.emptyStateTitle}>Henüz hap bilgi yok</Text>
+              <Text style={styles.emptyStateText}>
+                AI'ya soru sorduğunuzda analiz edip hap bilgiler önerecek
+              </Text>
+              <TouchableOpacity 
+                style={styles.aiButton}
+                onPress={() => navigation.navigate('Chat')}
+              >
+                <LinearGradient
+                  colors={['#8b5cf6', '#a855f7']}
+                  style={styles.aiButtonGradient}
+                >
+                  <Ionicons name="chatbubble-outline" size={20} color="#fff" />
+                  <Text style={styles.aiButtonText}>AI'ya Soru Sor</Text>
+                </LinearGradient>
+              </TouchableOpacity>
+            </LinearGradient>
           </View>
         )}
       </ScrollView>
@@ -182,14 +239,27 @@ const styles = StyleSheet.create({
     backgroundColor: '#fff',
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 5,
   },
   backButton: {
     padding: 8,
+  },
+  headerContent: {
+    alignItems: 'center',
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: 'bold',
     color: '#1f2937',
+  },
+  headerSubtitle: {
+    fontSize: 12,
+    color: '#6b7280',
+    marginTop: 2,
   },
   searchButton: {
     padding: 8,
@@ -199,32 +269,76 @@ const styles = StyleSheet.create({
     padding: 20,
   },
   infoSection: {
-    backgroundColor: '#fff',
-    borderRadius: 12,
-    padding: 20,
     marginBottom: 20,
-    alignItems: 'center',
+  },
+  infoCard: {
+    backgroundColor: '#ffffff',
+    borderRadius: 20,
+    padding: 24,
     shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.1,
-    shadowRadius: 3.84,
-    elevation: 5,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 6,
+    borderWidth: 1,
+    borderColor: '#f1f5f9',
+  },
+  infoHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+    marginBottom: 16,
+  },
+  infoIconContainer: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: '#f8fafc',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  aiTag: {
+    backgroundColor: '#fef3c7',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: '#f59e0b',
+  },
+  aiTagText: {
+    fontSize: 11,
+    fontWeight: '700',
+    color: '#92400e',
+    letterSpacing: 0.5,
   },
   infoTitle: {
     ...FONT_STYLES.h3,
     color: '#1f2937',
-    marginTop: 12,
-    marginBottom: 8,
+    marginBottom: 12,
+    textAlign: 'left',
+    fontSize: 20,
+    fontWeight: '700',
   },
   infoText: {
     ...FONT_STYLES.body,
-    color: '#6b7280',
-    textAlign: 'center',
-    lineHeight: 20,
+    color: '#4b5563',
+    textAlign: 'left',
+    lineHeight: 22,
+    marginBottom: 16,
+    fontSize: 14,
   },
+  infoFeatures: {
+    flexDirection: 'row',
+    gap: 16,
+  },
+  infoFeature: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  
   loadingContainer: {
     flex: 1,
     justifyContent: 'center',
@@ -247,6 +361,22 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 60,
+    borderRadius: 16,
+    overflow: 'hidden',
+  },
+  emptyStateGradient: {
+    padding: 40,
+    alignItems: 'center',
+    borderRadius: 16,
+  },
+  emptyStateIconContainer: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
   },
   emptyStateTitle: {
     ...FONT_STYLES.h3,
@@ -262,20 +392,19 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   aiButton: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: '#8b5cf6',
-    paddingHorizontal: 20,
-    paddingVertical: 12,
     borderRadius: 25,
     shadowColor: '#8b5cf6',
-    shadowOffset: {
-      width: 0,
-      height: 4,
-    },
+    shadowOffset: { width: 0, height: 6 },
     shadowOpacity: 0.3,
-    shadowRadius: 8,
-    elevation: 8,
+    shadowRadius: 12,
+    elevation: 10,
+  },
+  aiButtonGradient: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    paddingVertical: 14,
+    borderRadius: 25,
   },
   aiButtonText: {
     ...FONT_STYLES.body,

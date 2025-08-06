@@ -215,6 +215,7 @@ export const api = {
       body: data instanceof FormData ? data : JSON.stringify(data)
     };
     
+    // FormData için Content-Type'ı otomatik set etme (browser otomatik set eder)
     // Custom headers varsa ekle
     if (Object.keys(customHeaders).length > 0) {
       options.headers = customHeaders;
@@ -300,6 +301,7 @@ export const API_ENDPOINTS = {
     LIKE: (id) => `/posts/${id}/like`,
     LIKE_ALT: (id) => `/posts/${id}/toggle-like`, // Alternatif endpoint
     COMMENT: (id) => `/posts/${id}/comments`,
+    POPULAR_TAGS: '/posts/popular-tags',
   },
   
   // Comments endpoints

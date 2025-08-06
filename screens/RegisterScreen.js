@@ -14,6 +14,7 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
+import Toast from '../components/Toast';
 
 export default function RegisterScreen({ navigation }) {
   const [formData, setFormData] = useState({
@@ -25,6 +26,10 @@ export default function RegisterScreen({ navigation }) {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [acceptTerms, setAcceptTerms] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState('success');
   
   const { register } = useAuth();
 
@@ -34,22 +39,30 @@ export default function RegisterScreen({ navigation }) {
 
   const validateForm = () => {
     if (!formData.email || !formData.password) {
-      Alert.alert('Hata', 'Lütfen tüm alanları doldurun.');
+      setToastMessage('❌ Lütfen tüm alanları doldurun.');
+      setToastType('error');
+      setShowToast(true);
       return false;
     }
 
     if (formData.password !== formData.confirmPassword) {
-      Alert.alert('Hata', 'Şifreler eşleşmiyor.');
+      setToastMessage('❌ Şifreler eşleşmiyor.');
+      setToastType('error');
+      setShowToast(true);
       return false;
     }
 
     if (formData.password.length < 6) {
-      Alert.alert('Hata', 'Şifre en az 6 karakter olmalıdır.');
+      setToastMessage('❌ Şifre en az 6 karakter olmalıdır.');
+      setToastType('error');
+      setShowToast(true);
       return false;
     }
 
     if (!acceptTerms) {
-      Alert.alert('Hata', 'Kullanım şartlarını kabul etmelisiniz.');
+      setToastMessage('❌ Kullanım şartlarını kabul etmelisiniz.');
+      setToastType('error');
+      setShowToast(true);
       return false;
     }
 
@@ -65,33 +78,23 @@ export default function RegisterScreen({ navigation }) {
       const result = await register(formData);
       
       if (result.success) {
-        // Başarılı kayıt - kısa bir delay ile mesaj göster
-        Alert.alert(
-          'Başarılı! 🎉',
-          'Hesabınız oluşturuldu. Giriş yapılıyor...',
-          [{ text: 'Tamam' }],
-          { cancelable: false }
-        );
+        // Başarılı kayıt - Toast notification göster
+        setToastMessage('🎉 Başarıyla kayıt oluşturuldu!');
+        setToastType('success');
+        setShowToast(true);
         
-        // 1 saniye sonra otomatik kapat
-        setTimeout(() => {
-          // Navigation zaten AuthContext'te yapılıyor
-        }, 1000);
+        // 3 saniye sonra AuthContext'teki navigation çalışacak
       } else {
-        // Hata durumu
-        Alert.alert(
-          'Kayıt Başarısız ❌',
-          result.error || 'Kayıt olurken bir hata oluştu. Lütfen tekrar deneyin.',
-          [{ text: 'Tekrar Dene' }]
-        );
+        // Hata durumu - Toast notification göster
+        setToastMessage(`❌ ${result.error || 'Kayıt olurken bir hata oluştu. Lütfen tekrar deneyin.'}`);
+        setToastType('error');
+        setShowToast(true);
       }
     } catch (error) {
       console.error('Register error:', error);
-      Alert.alert(
-        'Bağlantı Hatası',
-        'Sunucuya bağlanırken bir hata oluştu. Lütfen internet bağlantınızı kontrol edin.',
-        [{ text: 'Tamam' }]
-      );
+      setToastMessage('❌ Sunucuya bağlanırken bir hata oluştu. Lütfen internet bağlantınızı kontrol edin.');
+      setToastType('error');
+      setShowToast(true);
     } finally {
       setIsLoading(false);
     }
@@ -104,6 +107,12 @@ export default function RegisterScreen({ navigation }) {
       colors={['#8b5cf6', '#a855f7', '#c084fc']}
       style={styles.container}
     >
+      <Toast
+        visible={showToast}
+        message={toastMessage}
+        type={toastType}
+        onHide={() => setShowToast(false)}
+      />
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -192,6 +201,17 @@ export default function RegisterScreen({ navigation }) {
                   </TouchableOpacity>
                 </View>
               </View>
+
+              {/* Remember Me Checkbox */}
+              <TouchableOpacity
+                style={styles.rememberContainer}
+                onPress={() => setRememberMe(!rememberMe)}
+              >
+                <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
+                  {rememberMe && <Ionicons name="checkmark" size={16} color="#fff" />}
+                </View>
+                <Text style={styles.rememberText}>Bu cihazda beni hatırla</Text>
+              </TouchableOpacity>
 
               {/* Terms Checkbox */}
               <TouchableOpacity
@@ -322,6 +342,12 @@ const styles = StyleSheet.create({
   eyeButton: {
     paddingHorizontal: 16,
   },
+  rememberContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    paddingHorizontal: 4,
+  },
   termsContainer: {
     flexDirection: 'row',
     alignItems: 'flex-start',
@@ -342,6 +368,11 @@ const styles = StyleSheet.create({
   checkboxChecked: {
     backgroundColor: '#8b5cf6',
     borderColor: '#8b5cf6',
+  },
+  rememberText: {
+    fontSize: 14,
+    color: '#374151',
+    fontWeight: '500',
   },
   termsText: {
     flex: 1,

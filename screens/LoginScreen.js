@@ -14,12 +14,17 @@ import {
 import { LinearGradient } from 'expo-linear-gradient';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../contexts/AuthContext';
+import Toast from '../components/Toast';
 
 export default function LoginScreen({ navigation }) {
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
+  const [rememberMe, setRememberMe] = useState(false);
+  const [showToast, setShowToast] = useState(false);
+  const [toastMessage, setToastMessage] = useState('');
+  const [toastType, setToastType] = useState('success');
   
   const { login } = useAuth();
 
@@ -37,7 +42,9 @@ export default function LoginScreen({ navigation }) {
 
   const handleLogin = async () => {
     if (!email || !password) {
-      Alert.alert('Hata', 'Lütfen tüm alanları doldurun.');
+      setToastMessage('❌ Lütfen tüm alanları doldurun.');
+      setToastType('error');
+      setShowToast(true);
       return;
     }
 
@@ -47,33 +54,23 @@ export default function LoginScreen({ navigation }) {
       const result = await login(email, password);
       
       if (result.success) {
-        // Başarılı giriş - kısa bir delay ile mesaj göster
-        Alert.alert(
-          'Başarılı! 🎉',
-          'Giriş yapıldı. Ana sayfaya yönlendiriliyorsunuz...',
-          [{ text: 'Tamam' }],
-          { cancelable: false }
-        );
+        // Başarılı giriş - Toast notification göster
+        setToastMessage('🎉 Başarıyla giriş yapıldı!');
+        setToastType('success');
+        setShowToast(true);
         
-        // 1 saniye sonra otomatik kapat
-        setTimeout(() => {
-          // Navigation zaten AuthContext'te yapılıyor
-        }, 1000);
+        // 3 saniye sonra AuthContext'teki navigation çalışacak
       } else {
-        // Hata durumu
-        Alert.alert(
-          'Giriş Başarısız ❌',
-          result.error || 'E-posta veya şifre hatalı. Lütfen tekrar deneyin.',
-          [{ text: 'Tekrar Dene' }]
-        );
+        // Hata durumu - Toast notification göster
+        setToastMessage(`❌ ${result.error || 'E-posta veya şifre hatalı. Lütfen tekrar deneyin.'}`);
+        setToastType('error');
+        setShowToast(true);
       }
     } catch (error) {
       console.error('Login error:', error);
-      Alert.alert(
-        'Bağlantı Hatası',
-        'Sunucuya bağlanırken bir hata oluştu. Lütfen internet bağlantınızı kontrol edin.',
-        [{ text: 'Tamam' }]
-      );
+      setToastMessage('❌ Sunucuya bağlanırken bir hata oluştu. Lütfen internet bağlantınızı kontrol edin.');
+      setToastType('error');
+      setShowToast(true);
     } finally {
       setIsLoading(false);
     }
@@ -84,6 +81,12 @@ export default function LoginScreen({ navigation }) {
       colors={['#8b5cf6', '#a855f7', '#c084fc']}
       style={styles.container}
     >
+      <Toast
+        visible={showToast}
+        message={toastMessage}
+        type={toastType}
+        onHide={() => setShowToast(false)}
+      />
       <SafeAreaView style={styles.safeArea}>
         <KeyboardAvoidingView
           behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
@@ -146,6 +149,19 @@ export default function LoginScreen({ navigation }) {
                 </View>
               </View>
 
+              {/* Remember Me Checkbox */}
+              <TouchableOpacity
+                style={styles.rememberContainer}
+                onPress={() => setRememberMe(!rememberMe)}
+              >
+                <View style={[styles.checkbox, rememberMe && styles.checkboxChecked]}>
+                  {rememberMe && <Ionicons name="checkmark" size={16} color="#fff" />}
+                </View>
+                <Text style={styles.rememberText}>Bu cihazda beni hatırla</Text>
+              </TouchableOpacity>
+
+
+
                                             {/* Login Button */}
                <TouchableOpacity
                  style={styles.loginButton}
@@ -164,31 +180,30 @@ export default function LoginScreen({ navigation }) {
                </View>
 
                {/* Social Login Buttons */}
-               <TouchableOpacity
-                 style={styles.socialButton}
-                 onPress={handleGoogleLogin}
-               >
-                 <Ionicons name="logo-google" size={20} color="#DB4437" />
-                 <Text style={styles.socialButtonText}>Google ile devam et</Text>
-               </TouchableOpacity>
-
-               <TouchableOpacity
-                 style={styles.socialButton}
-                 onPress={handleFacebookLogin}
-               >
-                 <Ionicons name="logo-facebook" size={20} color="#4267B2" />
-                 <Text style={styles.socialButtonText}>Facebook ile devam et</Text>
-               </TouchableOpacity>
-
-               {Platform.OS === 'ios' && (
+               <View style={styles.socialButtonsContainer}>
                  <TouchableOpacity
                    style={styles.socialButton}
-                   onPress={handleAppleLogin}
+                   onPress={handleGoogleLogin}
                  >
-                   <Ionicons name="logo-apple" size={20} color="#000" />
-                   <Text style={styles.socialButtonText}>Apple ile devam et</Text>
+                   <Ionicons name="logo-google" size={24} color="#DB4437" />
                  </TouchableOpacity>
-               )}
+
+                 <TouchableOpacity
+                   style={styles.socialButton}
+                   onPress={handleFacebookLogin}
+                 >
+                   <Ionicons name="logo-facebook" size={24} color="#4267B2" />
+                 </TouchableOpacity>
+
+                 {Platform.OS === 'ios' && (
+                   <TouchableOpacity
+                     style={styles.socialButton}
+                     onPress={handleAppleLogin}
+                   >
+                     <Ionicons name="logo-apple" size={24} color="#000" />
+                   </TouchableOpacity>
+                 )}
+               </View>
 
                {/* Register Link */}
                <View style={styles.registerLink}>
@@ -326,20 +341,55 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     fontWeight: '500',
   },
-  socialButton: {
-    backgroundColor: '#f9fafb',
-    borderRadius: 12,
-    paddingVertical: 14,
+  rememberContainer: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: 12,
-    gap: 8,
+    marginBottom: 20,
+    paddingHorizontal: 4,
   },
-  socialButtonText: {
-    fontSize: 16,
+  checkbox: {
+    width: 20,
+    height: 20,
+    borderRadius: 4,
+    borderWidth: 2,
+    borderColor: '#d1d5db',
+    marginRight: 12,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  checkboxChecked: {
+    backgroundColor: '#8b5cf6',
+    borderColor: '#8b5cf6',
+  },
+  rememberText: {
+    fontSize: 14,
     color: '#374151',
     fontWeight: '500',
+  },
+
+  socialButtonsContainer: {
+    flexDirection: 'row',
+    justifyContent: 'center',
+    gap: 16,
+    marginBottom: 20,
+  },
+  socialButton: {
+    width: 56,
+    height: 56,
+    backgroundColor: '#f9fafb',
+    borderRadius: 16,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: '#e5e7eb',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   registerLink: {
     flexDirection: 'row',

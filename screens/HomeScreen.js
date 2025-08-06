@@ -20,9 +20,9 @@ import { useAuth } from '../contexts/AuthContext';
 import postsService from '../services/postsService';
 import commentsService from '../services/commentsService';
 import followService from '../services/followService';
-
-
-import { FONT_STYLES, FONTS, FONT_WEIGHTS, FONT_SIZES } from '../utils/fonts';
+import notificationService from '../services/notificationService';
+import { aiService } from '../services';
+import { COLORS, SPACING, BORDER_RADIUS, SHADOWS, FONT_STYLES, FONTS, FONT_WEIGHTS, FONT_SIZES } from '../utils';
 
 
 const PostItem = ({ 
@@ -41,6 +41,7 @@ const PostItem = ({
   userId,
   isOwnPost,
   postType,
+  tags,
   onLike, 
   onComment, 
   onBookmark,
@@ -55,15 +56,15 @@ const PostItem = ({
         disabled={isFromAI}
       >
         {userImage ? (
-          <Image source={{ uri: userImage }} style={styles.userAvatar} />
+        <Image source={{ uri: userImage }} style={styles.userAvatar} />
         ) : (
           <View style={styles.userAvatarFallback}>
             <Text style={styles.userAvatarFallbackText}>
               {username ? username.charAt(0).toUpperCase() : 'U'}
             </Text>
-          </View>
+        </View>
         )}
-        <View>
+        <View style={styles.userInfoText}>
           <View style={styles.usernameRow}>
             <Text style={styles.username}>
               {isFromAI ? '🤖 AI Soru' : username}
@@ -73,21 +74,21 @@ const PostItem = ({
                 <Text style={styles.postTypeText}>
                   {postType === 'soru' ? 'Soru' : postType === 'danışma' ? 'Danışma' : postType}
                 </Text>
-              </View>
+      </View>
             )}
           </View>
           <Text style={styles.timeAgo}>{timeAgo}</Text>
         </View>
       </TouchableOpacity>
-      <TouchableOpacity>
-        <Ionicons name="ellipsis-horizontal" size={20} color="#666" />
+      <TouchableOpacity style={styles.moreButton}>
+        <Ionicons name="ellipsis-horizontal" size={20} color="#9ca3af" />
       </TouchableOpacity>
     </View>
 
     {/* Post Image */}
     {postImage && (
       <View style={styles.imageContainer}>
-        <Image source={{ uri: postImage }} style={styles.postImage} />
+    <Image source={{ uri: postImage }} style={styles.postImage} />
         {/* AI Post Badge - Görselin üstünde */}
         {isFromAI && (
           <View style={styles.aiBadgeOverlay}>
@@ -106,21 +107,34 @@ const PostItem = ({
       </View>
     )}
 
-    {/* Post Caption - Görselin hemen altında */}
-    {caption && (
+    {/* Post Caption and Tags - Görselin hemen altında */}
+    {(caption || (tags && tags.length > 0)) && (
       <View style={[
         styles.captionContainer,
         isFromAI && styles.aiCaptionContainer
       ]}>
         <View style={styles.captionContent}>
-          <Text style={[
-            styles.captionText,
-            isFromAI && styles.aiCaptionText
-          ]}>
-            <Text style={styles.usernameInCaption}>{username}</Text>
-            {isFromAI ? ': ' : ': '}
-            {caption}
-          </Text>
+          {caption && (
+            <Text style={[
+              styles.captionText,
+              isFromAI && styles.aiCaptionText
+            ]}>
+              <Text style={styles.usernameInCaption}>{username}</Text>
+              {isFromAI ? ': ' : ': '}
+              {caption}
+            </Text>
+          )}
+          
+          {/* Post Tags */}
+          {tags && tags.length > 0 && (
+            <View style={styles.tagsContainer}>
+              {tags.map((tag, index) => (
+                <View key={index} style={styles.tagItem}>
+                  <Text style={styles.tagText}>{tag}</Text>
+                </View>
+              ))}
+            </View>
+          )}
         </View>
         <Text style={styles.captionTime}>{timeAgo}</Text>
       </View>
@@ -133,27 +147,29 @@ const PostItem = ({
           <Ionicons 
             name={isLiked ? "heart" : "heart-outline"} 
             size={24} 
-            color={isLiked ? "#ff3040" : "#000"} 
+            color={isLiked ? "#ef4444" : "#6b7280"} 
           />
+          {likes > 0 && (
+            <Text style={styles.likeCount}>{likes}</Text>
+          )}
         </TouchableOpacity>
         <TouchableOpacity style={styles.actionButton} onPress={onComment}>
-          <Ionicons name="chatbubble-outline" size={22} color="#000" />
+          <Ionicons name="chatbubble-outline" size={22} color="#6b7280" />
           {commentCount > 0 && (
             <Text style={styles.commentCount}>{commentCount}</Text>
           )}
         </TouchableOpacity>
       </View>
-      <TouchableOpacity onPress={onBookmark}>
-        <Ionicons 
-          name={isSaved ? "bookmark" : "bookmark-outline"} 
-          size={22} 
-          color={isSaved ? "#000" : "#000"} 
-        />
-      </TouchableOpacity>
+      <TouchableOpacity style={styles.bookmarkButton} onPress={onBookmark}>
+            <Ionicons 
+              name={isSaved ? "bookmark" : "bookmark-outline"} 
+              size={22} 
+          color={isSaved ? "#8b5cf6" : "#6b7280"} 
+            />
+          </TouchableOpacity>
     </View>
 
-    {/* Likes */}
-    <Text style={styles.likes}>{likes} likes</Text>
+
   </View>
 );
 
@@ -161,9 +177,15 @@ export default function HomeScreen({ navigation }) {
   const { savePost, unsavePost, isPostSaved, postDeletedEvent } = useSavedPosts();
   const { user } = useAuth();
   const [posts, setPosts] = useState([]);
+  const [filteredPosts, setFilteredPosts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState(null);
   const [feedType, setFeedType] = useState('all'); // 'all' veya 'following'
+  
+  // Filtreleme state'leri
+  const [postTypeFilter, setPostTypeFilter] = useState('all'); // 'all', 'soru', 'danışma'
+  const [sortBy, setSortBy] = useState('latest'); // 'latest', 'popular', 'oldest'
+  const [showFilters, setShowFilters] = useState(false);
 
   const [commentModalVisible, setCommentModalVisible] = useState(false);
   const [selectedPostId, setSelectedPostId] = useState(null);
@@ -174,32 +196,118 @@ export default function HomeScreen({ navigation }) {
   
   // Bildirim sistemi
   const [notification, setNotification] = useState(null);
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState(0);
   
   // Yeni gönderiler sistemi
   const [hasNewPosts, setHasNewPosts] = useState(false);
   const [lastPostCount, setLastPostCount] = useState(0);
   const [isRefreshing, setIsRefreshing] = useState(false);
-  
 
+  // Filtreleme ve sıralama fonksiyonu
+  const applyFiltersAndSort = (postsToFilter) => {
+    let filtered = [...postsToFilter];
+
+    // Feed type filtresi (Tüm Postlar / Takip Ettiklerim)
+    if (feedType === 'following') {
+      console.log('🔍 Filtering for following posts...');
+      console.log('👤 Current user:', user);
+      console.log('📝 Total posts before filtering:', filtered.length);
+      
+      // Kullanıcının takip ettiği kişilerin postlarını filtrele
+      filtered = filtered.filter(post => {
+        // Kendi post'larım her zaman görünsün
+        if (post.isOwnPost) {
+          console.log('✅ Own post included:', post.caption?.substring(0, 30));
+          return true;
+        }
+        
+        // Kullanıcının takip ettiği kişilerin post'larını kontrol et
+        const currentUser = user;
+        if (currentUser && currentUser.following && Array.isArray(currentUser.following)) {
+          const isFollowing = currentUser.following.includes(post.userId);
+          console.log(`👥 Post by ${post.username} (${post.userId}): ${isFollowing ? '✅ Following' : '❌ Not following'}`);
+          return isFollowing;
+        } else {
+          console.log('❌ No following list found for user');
+          return false;
+        }
+      });
+      
+      console.log('📝 Posts after following filter:', filtered.length);
+    }
+
+    // Post türü filtresi
+    if (postTypeFilter !== 'all') {
+      filtered = filtered.filter(post => post.postType === postTypeFilter);
+    }
+
+    // Sıralama
+    switch (sortBy) {
+      case 'latest':
+        filtered.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+        break;
+      case 'oldest':
+        filtered.sort((a, b) => new Date(a.createdAt) - new Date(b.createdAt));
+        break;
+      case 'popular':
+        filtered.sort((a, b) => (b.likes + b.commentCount) - (a.likes + a.commentCount));
+        break;
+      default:
+        break;
+    }
+
+    return filtered;
+  };
+
+  // Posts değiştiğinde filtreleri uygula
+  useEffect(() => {
+    setFilteredPosts(applyFiltersAndSort(posts));
+  }, [posts, postTypeFilter, sortBy, feedType, user?.following]);
 
   // Load posts from backend
   useEffect(() => {
     console.log('🏠 HomeScreen mounted - calling loadPosts');
     loadPosts();
+    loadUnreadNotificationCount();
+    loadUserFollowingList();
+    
+    // Sistem durumu kontrolü
+    const checkSystemStatus = async () => {
+      try {
+        console.log('🔍 Starting system status check...');
+        const status = await aiService.checkSystemStatus();
+        console.log('🔍 System Status Check Result:', status);
+        
+        if (status.success) {
+          console.log('✅ System status check successful');
+        } else {
+          console.log('❌ System status check failed:', status.error);
+        }
+      } catch (error) {
+        console.error('❌ System status check failed:', error);
+      }
+    };
+    
+    // 2 saniye sonra sistem durumunu kontrol et
+    setTimeout(checkSystemStatus, 2000);
   }, [user?.name, user?.avatar]); // Kullanıcı bilgileri değiştiğinde post'ları yenile
 
-  // Periyodik olarak yeni gönderileri kontrol et (30 saniyede bir)
+  // Periyodik olarak yeni gönderileri kontrol et (geçici olarak devre dışı)
+  // Backend'deki /latest endpoint sorunu çözülene kadar bu özellik devre dışı
+  /*
   useEffect(() => {
     const checkNewPosts = async () => {
       if (!isLoading && !isRefreshing) {
         try {
-          const result = await postsService.getPosts();
-          if (result.success && result.data?.posts) {
-            const currentPostCount = result.data.posts.length;
-            if (lastPostCount > 0 && currentPostCount > lastPostCount) {
-              console.log('🆕 Yeni gönderiler tespit edildi!');
-              setHasNewPosts(true);
-            }
+          // En son gördüğümüz post'un ID'sini al
+          const lastSeenPostId = posts.length > 0 ? posts[0].id : null;
+          
+          console.log('🔍 Checking for new posts, lastSeenPostId:', lastSeenPostId);
+          
+          const result = await postsService.checkNewPosts(lastSeenPostId);
+          if (result.success && result.data?.hasNewPosts) {
+            console.log('🆕 Yeni gönderiler tespit edildi!');
+            setHasNewPosts(true);
           }
         } catch (error) {
           console.log('Yeni gönderiler kontrol edilirken hata:', error);
@@ -210,13 +318,15 @@ export default function HomeScreen({ navigation }) {
     const interval = setInterval(checkNewPosts, 30000); // 30 saniye
 
     return () => clearInterval(interval);
-  }, [lastPostCount, isLoading, isRefreshing]);
+  }, [posts, isLoading, isRefreshing]);
+  */
 
   // Focus listener - sayfa her açıldığında posts'ları yenile
   useEffect(() => {
     const unsubscribe = navigation.addListener('focus', () => {
       console.log('🔄 HomeScreen focused - reloading posts');
       loadPosts();
+      loadUnreadNotificationCount();
     });
 
     return unsubscribe;
@@ -284,7 +394,7 @@ export default function HomeScreen({ navigation }) {
       if (isRefresh) {
         setIsRefreshing(true);
       } else {
-        setIsLoading(true);
+      setIsLoading(true);
       }
       setError(null);
       
@@ -330,6 +440,19 @@ export default function HomeScreen({ navigation }) {
         
         // Transform backend data to match our frontend structure
         const transformedPosts = postsData.map(post => {
+          console.log('🔍 Processing post:', post._id || post.id);
+          console.log('🏷️ Post tags:', post.tags);
+          console.log('🏷️ Post topicTags:', post.topicTags);
+          console.log('🏷️ Post keywords:', post.keywords);
+          console.log('🏷️ Post full structure:', JSON.stringify(post, null, 2));
+          
+          // Etiket debug bilgisi
+          const extractedTags = (post.tags || post.topicTags || post.keywords || [])
+            .filter(tag => tag && tag.trim() !== '')
+            .map(tag => tag.startsWith('#') ? tag : `#${tag}`);
+          
+          console.log('🏷️ Extracted tags:', extractedTags);
+          console.log('🏷️ Tags length:', extractedTags.length);
           // Kullanıcı ID'sini kontrol et - eğer kendi post'umsa güncel ismi kullan
           const currentUser = user;
           const isOwnPost = currentUser && (post.userId?._id === currentUser._id || post.userId === currentUser._id);
@@ -339,21 +462,24 @@ export default function HomeScreen({ navigation }) {
           const displayUserImage = isOwnPost ? (currentUser.avatar || post.userId?.avatar) : (post.userId?.avatar || post.userImage);
           
           return {
-            id: post._id || post.id,
+          id: post._id || post.id,
             userId: post.userId?._id || post.userId || null,
             username: displayUsername,
             userImage: displayUserImage,
             postImage: post.imageURL || post.postImage || null,
             caption: post.caption || post.text || '',
-            likes: post.likes?.length?.toString() || post.likes || '0',
-            timeAgo: post.createdAt ? getTimeAgo(new Date(post.createdAt)) : post.timeAgo || '1h',
-            isLiked: post.isLiked || false,
+          likes: post.likes?.length?.toString() || post.likes || '0',
+          timeAgo: post.createdAt ? getTimeAgo(new Date(post.createdAt)) : post.timeAgo || '1h',
+          isLiked: post.isLiked || false,
             isFromAI: post.isFromAI || false,
             aiPrompt: post.aiPrompt || null,
             aiResponseType: post.aiResponseType || null,
             commentCount: post.commentCount || 0,
             isOwnPost: isOwnPost, // Kendi post'um mu?
             postType: post.postType || null, // Post türü (soru/danışma)
+            tags: (post.tags || post.topicTags || post.keywords || [])
+              .filter(tag => tag && tag.trim() !== '')
+              .map(tag => tag.startsWith('#') ? tag : `#${tag}`), // Etiketler
           };
         });
         
@@ -383,8 +509,8 @@ export default function HomeScreen({ navigation }) {
         setLastPostCount(0);
         
         if (!result.success) {
-          console.error('❌ Load posts failed:', result.error);
-          setError(result.error || 'Postlar yüklenemedi');
+        console.error('❌ Load posts failed:', result.error);
+        setError(result.error || 'Postlar yüklenemedi');
         }
       }
     } catch (error) {
@@ -417,18 +543,53 @@ export default function HomeScreen({ navigation }) {
     await loadPosts(true);
   };
 
+  // Okunmamış bildirim sayısını yükle
+  const loadUnreadNotificationCount = async () => {
+    try {
+      const result = await notificationService.getUnreadCount();
+      if (result.success) {
+        setUnreadNotificationCount(result.count || 0);
+      }
+    } catch (error) {
+      console.error('Load unread notification count error:', error);
+    }
+  };
+
+  // Kullanıcının following listesini yükle
+  const loadUserFollowingList = async () => {
+    try {
+      console.log('👥 Loading user following list...');
+      // Kullanıcının following listesini backend'den çek
+      const followingList = await followService.getFollowingList();
+      console.log('👥 Following list loaded:', followingList);
+      
+      // AuthContext'teki user'ı güncelle
+      if (user && followingList) {
+        // Bu kısmı AuthContext'te yapmak daha iyi olur
+        console.log('👥 Updated user following list');
+      }
+    } catch (error) {
+      console.error('❌ Error loading following list:', error);
+    }
+  };
+
+  // Bildirimler sayfasına git
+  const handleNotificationPress = () => {
+    navigation.navigate('NotificationsStack');
+  };
+
   // Event Handlers
-    const handleLike = async (postId) => {
+  const handleLike = async (postId) => {
     try {
 
       // Optimistic update
-      setPosts(prevPosts =>
-        prevPosts.map(post =>
-          post.id === postId
-            ? {
-                ...post,
+      setPosts(prevPosts => 
+        prevPosts.map(post => 
+          post.id === postId 
+            ? { 
+                ...post, 
                 isLiked: !post.isLiked,
-                likes: post.isLiked
+                likes: post.isLiked 
                   ? String(Math.max(0, parseInt(post.likes.replace(',', '')) - 1))
                   : String(parseInt(post.likes.replace(',', '')) + 1)
               }
@@ -437,7 +598,7 @@ export default function HomeScreen({ navigation }) {
       );
 
 
-      
+
       // Backend call
       const result = await postsService.toggleLike(postId);
       
@@ -556,34 +717,34 @@ export default function HomeScreen({ navigation }) {
         console.error('Load comments error:', result.error);
         setComments([]);
       }
-          } catch (error) {
-        console.error('Load comments error:', error);
+    } catch (error) {
+      console.error('Load comments error:', error);
         console.error('Error details:', {
           message: error.message,
           stack: error.stack,
           result: result
         });
-        setComments([]);
-      } finally {
-        setIsLoadingComments(false);
-      }
+      setComments([]);
+    } finally {
+      setIsLoadingComments(false);
+    }
   };
 
 
 
   const handleBookmark = async (postId) => {
     try {
-      const post = posts.find(p => p.id === postId);
-      if (!post) return;
+    const post = posts.find(p => p.id === postId);
+    if (!post) return;
 
       const isCurrentlySaved = isPostSaved(postId);
-      
+    
       if (isCurrentlySaved) {
-        const result = await unsavePost(postId);
-        if (result.success) {
+      const result = await unsavePost(postId);
+      if (result.success) {
           console.log('Post kaydedilenlerden çıkarıldı:', postId);
-        }
-      } else {
+      }
+    } else {
         const postData = {
           id: postId,
           postImage: post.postImage,
@@ -593,7 +754,7 @@ export default function HomeScreen({ navigation }) {
           isFromAI: post.isFromAI,
         };
         const result = await savePost(postData);
-        if (result.success) {
+      if (result.success) {
           console.log('Post kaydedildi:', postId);
         }
       }
@@ -674,9 +835,15 @@ export default function HomeScreen({ navigation }) {
       } else {
         // Başka kullanıcının postuysa onun profilini göster
         console.log('🔧 Başka kullanıcının postuna tıklandı, onun profilini gösteriyorum');
+        console.log('🔧 UserId:', userId, 'Username:', username);
+        
+        // Kullanıcı profiline Profile stack üzerinden navigate et
         navigation.navigate('Profile', { 
-          screen: 'UserProfile', 
-          params: { userId, username } 
+          screen: 'UserProfileScreen',
+          params: { 
+            userId: userId, 
+            username: username 
+          }
         });
       }
     }
@@ -752,16 +919,16 @@ export default function HomeScreen({ navigation }) {
           setCommentText('');
           setReplyingTo(null); // Yanıtlama durumunu sıfırla
           
-          // AI etiketleme varsa HTTP ile AI yanıtı iste
+          // AI etiketleme varsa AI analizi yap
           if (hasAITag) {
-            console.log('🤖 AI etiketleme tespit edildi, HTTP ile AI yanıtı isteniyor...');
+            console.log('🤖 AI etiketleme tespit edildi, AI analizi yapılıyor...');
             
             // Loading state'i göster
             const loadingComment = {
               id: `loading_${Date.now()}`,
               username: '🤖 GeminiHoca',
               userImage: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=150',
-              text: 'Düşünüyor...',
+              text: 'Soru ve yorumunuzu analiz ediyorum...',
               timeAgo: 'Şimdi',
               isLiked: false,
               likes: 0,
@@ -774,50 +941,137 @@ export default function HomeScreen({ navigation }) {
             
             setComments(prevComments => [loadingComment, ...prevComments]);
             
-            // HTTP ile AI yanıtını bekle (2 saniyede bir kontrol)
-            const checkAIResponse = setInterval(async () => {
-              try {
-                const aiResult = await commentsService.checkAIResponse(newComment.id);
-                if (aiResult.success && aiResult.response) {
-                  // AI yanıtını göster
-                  const aiComment = {
-                    id: `ai_${Date.now()}`,
-                    username: '🤖 GeminiHoca',
-                    userImage: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=150',
-                    text: aiResult.response,
-                    timeAgo: 'Şimdi',
-                    isLiked: false,
-                    likes: 0,
-                    isOwnComment: false,
-                    isAIResponse: true,
-                    parentCommentId: newComment.id,
-                    replyingTo: user?.name || 'Kullanıcı',
-                  };
-                  
-                  // Loading comment'i kaldır, AI yanıtını ekle
-                  setComments(prevComments => 
-                    prevComments
-                      .filter(comment => !comment.isLoading)
-                      .map(comment => comment)
+            // AI analizi yap
+            try {
+              // Post içeriğini al (selectedPost'dan)
+              const currentPost = posts.find(post => post._id === selectedPostId);
+              console.log('🔍 Current post for AI analysis:', currentPost);
+              console.log('🔍 Selected Post ID:', selectedPostId);
+              console.log('🔍 Available posts:', posts.map(p => ({ id: p._id || p.id, caption: p.caption })));
+              
+              // Post bulunamadıysa, comments'dan post ID'yi al
+              let postContent = 'Soru içeriği bulunamadı';
+              let postType = 'soru';
+              
+              if (currentPost) {
+                postContent = currentPost.caption || currentPost.content || 'Soru içeriği bulunamadı';
+                postType = currentPost.postType || 'soru';
+              } else {
+                // Comments'dan post ID'yi kullanarak tekrar dene
+                console.log('🔍 Post not found in posts array, trying to get from comments...');
+                const commentPostId = comments[0]?.postId;
+                if (commentPostId) {
+                  // Hem _id hem de id ile dene
+                  const fallbackPost = posts.find(post => 
+                    post._id === commentPostId || 
+                    post.id === commentPostId ||
+                    post._id === selectedPostId ||
+                    post.id === selectedPostId
                   );
-                  setComments(prevComments => [aiComment, ...prevComments]);
-                  
-                  clearInterval(checkAIResponse);
-                  console.log('✅ AI yanıtı alındı ve gösterildi');
+                  if (fallbackPost) {
+                    postContent = fallbackPost.caption || fallbackPost.content || 'Soru içeriği bulunamadı';
+                    postType = fallbackPost.postType || 'soru';
+                    console.log('🔍 Found post via fallback:', fallbackPost);
+                  } else {
+                    console.log('🔍 No post found with any ID method');
+                  }
                 }
-              } catch (error) {
-                console.error('❌ AI yanıtı kontrol hatası:', error);
+                
+                // Hala bulunamadıysa, tüm posts array'ini kontrol et
+                if (postContent === 'Soru içeriği bulunamadı') {
+                  console.log('🔍 Trying to find post in all posts array...');
+                  for (let post of posts) {
+                    if (post._id === selectedPostId || post.id === selectedPostId) {
+                      postContent = post.caption || post.content || 'Soru içeriği bulunamadı';
+                      postType = post.postType || 'soru';
+                      console.log('✅ Found post in loop:', post.caption);
+                      break;
+                    }
+                  }
+                }
+                
+                // Son çare: selectedPostId'yi string olarak kontrol et
+                if (postContent === 'Soru içeriği bulunamadı') {
+                  console.log('🔍 Last resort: checking selectedPostId as string:', selectedPostId);
+                  const stringPost = posts.find(post => 
+                    String(post._id) === String(selectedPostId) || 
+                    String(post.id) === String(selectedPostId)
+                  );
+                  if (stringPost) {
+                    postContent = stringPost.caption || stringPost.content || 'Soru içeriği bulunamadı';
+                    postType = stringPost.postType || 'soru';
+                    console.log('✅ Found post via string comparison:', stringPost.caption);
+                  }
+                }
               }
-            }, 2000); // 2 saniyede bir kontrol
-            
-            // 2 dakika sonra kontrolü durdur
-            setTimeout(() => {
-              clearInterval(checkAIResponse);
-              // Loading comment'i kaldır
+              
+              console.log('📊 AI Analysis - Post Content:', postContent);
+              console.log('📊 AI Analysis - Comment:', commentText.trim());
+              console.log('📊 AI Analysis - Post Type:', postType);
+              
+              const aiResult = await aiService.analyzeComment(
+                postContent, 
+                commentText.trim(), 
+                postType
+              );
+              
+              if (aiResult.success && aiResult.data?.response) {
+                // AI analiz yanıtını göster
+                const aiComment = {
+                  id: `ai_${Date.now()}`,
+                  username: '🤖 GeminiHoca',
+                  userImage: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=150',
+                  text: aiResult.data.response,
+                  timeAgo: 'Şimdi',
+                  isLiked: false,
+                  likes: 0,
+                  isOwnComment: false,
+                  isAIResponse: true,
+                  parentCommentId: newComment.id,
+                  replyingTo: user?.name || 'Kullanıcı',
+                };
+                
+                // Loading comment'i kaldır, AI yanıtını ekle
+                setComments(prevComments => 
+                  prevComments
+                    .filter(comment => !comment.isLoading)
+                    .map(comment => comment)
+                );
+                setComments(prevComments => [aiComment, ...prevComments]);
+                
+                console.log('✅ AI analizi tamamlandı ve gösterildi');
+                        } else {
+            // AI analizi başarısız
+            const errorMessage = aiResult.error || 'Analiz yapılırken bir hata oluştu. Lütfen tekrar deneyin.';
+            const errorComment = {
+              id: `ai_error_${Date.now()}`,
+              username: '🤖 GeminiHoca',
+              userImage: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=150',
+              text: errorMessage,
+              timeAgo: 'Şimdi',
+              isLiked: false,
+              likes: 0,
+              isOwnComment: false,
+              isAIResponse: true,
+              parentCommentId: newComment.id,
+              replyingTo: user?.name || 'Kullanıcı',
+            };
+                
+                setComments(prevComments => 
+                  prevComments
+                    .filter(comment => !comment.isLoading)
+                    .map(comment => comment)
+                );
+                setComments(prevComments => [errorComment, ...prevComments]);
+              }
+            } catch (error) {
+              console.error('❌ AI analizi hatası:', error);
+              
+              // Hata durumunda loading'i kaldır
               setComments(prevComments => 
                 prevComments.filter(comment => !comment.isLoading)
               );
-            }, 120000); // 2 dakika
+            }
           }
         } else {
           console.error('Send comment error:', result.error);
@@ -859,24 +1113,26 @@ export default function HomeScreen({ navigation }) {
       
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Ana Sayfa</Text>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>Ana Sayfa</Text>
+          <Text style={styles.headerSubtitle}>Keşfet ve paylaş</Text>
+        </View>
         <View style={styles.headerActions}>
           <TouchableOpacity 
-            style={styles.debugButton}
-            onPress={() => {
-              const stats = postCacheService.getStats();
-              console.log('📊 Cache İstatistikleri:', stats);
-              Alert.alert(
-                'Cache İstatistikleri',
-                `Toplam Post: ${stats.totalPosts}\nSon Kullanılan: ${stats.recentPosts}\nBeğenilen: ${stats.likedPosts}\nKaydedilen: ${stats.savedPosts}\nKendi Postlarım: ${stats.ownPosts}\nMaksimum: ${stats.maxPosts}`,
-                [{ text: 'Tamam' }]
-              );
-            }}
+            style={styles.headerButton}
+            onPress={handleNotificationPress}
           >
-            <Ionicons name="analytics-outline" size={20} color="#8b5cf6" />
+            <Ionicons name="notifications-outline" size={24} color="#374151" />
+            {unreadNotificationCount > 0 && (
+              <View style={styles.notificationBadge}>
+                <Text style={styles.notificationBadgeText}>
+                  {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
+                </Text>
+              </View>
+            )}
           </TouchableOpacity>
-          <TouchableOpacity>
-            <Ionicons name="camera-outline" size={24} color="#000" />
+          <TouchableOpacity style={styles.headerButton}>
+            <Ionicons name="camera-outline" size={24} color="#374151" />
           </TouchableOpacity>
         </View>
       </View>
@@ -890,16 +1146,128 @@ export default function HomeScreen({ navigation }) {
           <Text style={[styles.feedTabText, feedType === 'all' && styles.activeFeedTabText]}>
             Tüm Postlar
           </Text>
+          {feedType === 'all' && <View style={styles.activeIndicator} />}
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.feedTab, feedType === 'following' && styles.activeFeedTab]}
-          onPress={() => setFeedType('following')}
+          onPress={() => {
+            console.log('🔍 Takip Ettiklerim clicked!');
+            console.log('👤 Current user following list:', user?.following);
+            console.log('📝 Current posts count:', posts.length);
+            
+            // Kullanıcıya bilgi ver
+            if (!user?.following || user.following.length === 0) {
+              Alert.alert(
+                'Takip Ettiklerim 📝',
+                'Henüz kimseyi takip etmiyorsunuz. Kullanıcıları takip etmeye başladığınızda burada onların paylaşımlarını göreceksiniz.',
+                [{ text: 'Tamam' }]
+              );
+            }
+            
+            setFeedType('following');
+          }}
         >
           <Text style={[styles.feedTabText, feedType === 'following' && styles.activeFeedTabText]}>
             Takip Ettiklerim
           </Text>
+          {feedType === 'following' && <View style={styles.activeIndicator} />}
+        </TouchableOpacity>
+        
+        {/* Filtre Butonu */}
+        <TouchableOpacity 
+          style={styles.filterButton}
+          onPress={() => setShowFilters(!showFilters)}
+        >
+          <Ionicons 
+            name={showFilters ? "close" : "filter"} 
+            size={20} 
+            color={COLORS.primary[500]} 
+          />
         </TouchableOpacity>
       </View>
+
+      {/* Filtreleme Paneli */}
+      {showFilters && (
+        <View style={[styles.filterPanel, styles.filterCard]}>
+          {/* Post Türü Filtresi */}
+          <View style={styles.filterSection}>
+            <Text style={styles.filterSectionTitle}>Post Türü</Text>
+            <View style={styles.filterOptions}>
+              {[
+                { key: 'all', label: 'Tümü', icon: 'grid' },
+                { key: 'soru', label: 'Soru', icon: 'help-circle' },
+                { key: 'danışma', label: 'Danışma', icon: 'chatbubble' }
+              ].map((option) => (
+                <TouchableOpacity
+                  key={option.key}
+                  style={[
+                    styles.filterOption,
+                    postTypeFilter === option.key && styles.filterOptionActive
+                  ]}
+                  onPress={() => setPostTypeFilter(option.key)}
+                >
+                  <Ionicons 
+                    name={option.icon} 
+                    size={16} 
+                    color={postTypeFilter === option.key ? COLORS.text.inverse : COLORS.text.secondary} 
+                  />
+                  <Text style={[
+                    styles.filterOptionText,
+                    postTypeFilter === option.key && styles.filterOptionTextActive
+                  ]}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Sıralama Seçenekleri */}
+          <View style={styles.filterSection}>
+            <Text style={styles.filterSectionTitle}>Sıralama</Text>
+            <View style={styles.filterOptions}>
+              {[
+                { key: 'latest', label: 'En Yeni', icon: 'time' },
+                { key: 'popular', label: 'Popüler', icon: 'trending-up' },
+                { key: 'oldest', label: 'En Eski', icon: 'time-outline' }
+              ].map((option) => (
+                <TouchableOpacity
+                  key={option.key}
+                  style={[
+                    styles.filterOption,
+                    sortBy === option.key && styles.filterOptionActive
+                  ]}
+                  onPress={() => setSortBy(option.key)}
+                >
+                  <Ionicons 
+                    name={option.icon} 
+                    size={16} 
+                    color={sortBy === option.key ? COLORS.text.inverse : COLORS.text.secondary} 
+                  />
+                  <Text style={[
+                    styles.filterOptionText,
+                    sortBy === option.key && styles.filterOptionTextActive
+                  ]}>
+                    {option.label}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+          </View>
+
+          {/* Filtreleri Temizle */}
+          <TouchableOpacity
+            style={styles.clearFiltersButton}
+            onPress={() => {
+              setPostTypeFilter('all');
+              setSortBy('latest');
+            }}
+          >
+            <Ionicons name="refresh" size={16} color={COLORS.text.secondary} />
+            <Text style={styles.clearFiltersText}>Filtreleri Temizle</Text>
+          </TouchableOpacity>
+        </View>
+      )}
 
       {/* Yeni Gönderiler Butonu */}
       {hasNewPosts && (
@@ -938,14 +1306,14 @@ export default function HomeScreen({ navigation }) {
               <Text style={styles.retryButtonText}>Tekrar Dene</Text>
             </TouchableOpacity>
           </View>
-        ) : posts.length === 0 ? (
+        ) : filteredPosts.length === 0 ? (
           <View style={styles.emptyContainer}>
             <Ionicons name="images-outline" size={48} color="#9ca3af" />
             <Text style={styles.emptyText}>Henüz post yok</Text>
             <Text style={styles.emptySubtext}>İlk post'u sen paylaş veya AI'dan soru sor!</Text>
           </View>
         ) : (
-          posts.map((post) => (
+          filteredPosts.map((post) => (
             <PostItem
               key={post.id}
               username={post.username}
@@ -963,6 +1331,7 @@ export default function HomeScreen({ navigation }) {
               userId={post.userId}
               isOwnPost={post.isOwnPost}
               postType={post.postType}
+              tags={post.tags}
               onLike={() => handleLike(post.id)}
               onComment={() => handleComment(post.id)}
               onBookmark={() => handleBookmark(post.id)}
@@ -1121,100 +1490,262 @@ export default function HomeScreen({ navigation }) {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: '#fff',
+    backgroundColor: '#f8fafc',
   },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 15,
-    paddingTop: Platform.OS === 'android' ? 35 : 15,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    paddingVertical: 20,
+    paddingTop: Platform.OS === 'android' ? 40 : 20,
+    backgroundColor: '#fff',
+    borderBottomWidth: 0,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  headerLeft: {
+    flex: 1,
+  },
+  headerTitle: {
+    fontSize: 28,
+    fontWeight: '700',
+    color: '#1f2937',
+    marginBottom: 4,
+    letterSpacing: -0.5,
+  },
+  headerSubtitle: {
+    fontSize: 14,
+    color: '#6b7280',
+    fontWeight: '400',
+    letterSpacing: 0.2,
+  },
+  headerActions: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+  },
+  headerButton: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: '#f8fafc',
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 0,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 3,
+    elevation: 2,
+    position: 'relative',
+  },
+  notificationBadge: {
+    position: 'absolute',
+    top: -2,
+    right: -2,
+    backgroundColor: '#ef4444',
+    borderRadius: 10,
+    minWidth: 20,
+    height: 20,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#fff',
+  },
+  notificationBadgeText: {
+    ...FONT_STYLES.medium,
+    fontSize: FONT_SIZES.xs,
+    color: '#fff',
   },
   feedSelector: {
     flexDirection: 'row',
     backgroundColor: '#fff',
     paddingHorizontal: 20,
-    paddingVertical: 10,
-    borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    paddingVertical: 16,
+    borderBottomWidth: 0,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.03,
+    shadowRadius: 4,
+    elevation: 1,
   },
   feedTab: {
     flex: 1,
-    paddingVertical: 12,
-    paddingHorizontal: 16,
+    paddingVertical: 14,
+    paddingHorizontal: 20,
     alignItems: 'center',
-    borderRadius: 8,
-    marginHorizontal: 4,
+    borderRadius: 16,
+    marginHorizontal: 6,
+    position: 'relative',
+    backgroundColor: '#f8fafc',
+    borderWidth: 1,
+    borderColor: 'transparent',
   },
   activeFeedTab: {
     backgroundColor: '#8b5cf6',
+    borderColor: '#8b5cf6',
+    shadowColor: '#8b5cf6',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.2,
+    shadowRadius: 4,
+    elevation: 3,
   },
   feedTabText: {
-    ...FONT_STYLES.bodyMedium,
+    fontSize: 15,
     color: '#6b7280',
+    fontWeight: '600',
+    letterSpacing: 0.3,
   },
   activeFeedTabText: {
-    ...FONT_STYLES.bodyMedium,
+    fontSize: 15,
     color: '#fff',
+    fontWeight: '700',
+    letterSpacing: 0.3,
   },
-  headerActions: {
+  activeIndicator: {
+    position: 'absolute',
+    bottom: -12,
+    left: '50%',
+    marginLeft: -8,
+    width: 16,
+    height: 3,
+    backgroundColor: '#8b5cf6',
+    borderRadius: 2,
+  },
+  filterButton: {
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  filterPanel: {
+    marginHorizontal: SPACING.lg,
+    marginBottom: SPACING.md,
+  },
+  filterCard: {
+    backgroundColor: COLORS.background.primary,
+    borderRadius: BORDER_RADIUS.xl,
+    padding: SPACING.lg,
+    borderWidth: 1,
+    borderColor: COLORS.border.light,
+    ...SHADOWS.sm,
+  },
+  filterSection: {
+    marginBottom: SPACING.lg,
+  },
+  filterSectionTitle: {
+    ...FONT_STYLES.bodyBold,
+    color: COLORS.text.primary,
+    marginBottom: SPACING.sm,
+  },
+  filterOptions: {
+    flexDirection: 'row',
+    gap: SPACING.sm,
+  },
+  filterOption: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 12,
+    paddingHorizontal: SPACING.md,
+    paddingVertical: SPACING.sm,
+    borderRadius: BORDER_RADIUS.md,
+    backgroundColor: COLORS.neutral[100],
+    gap: SPACING.xs,
   },
-  debugButton: {
-    padding: 8,
-    borderRadius: 8,
-    backgroundColor: 'rgba(139, 92, 246, 0.1)',
+  filterOptionActive: {
+    backgroundColor: COLORS.primary[500],
+  },
+  filterOptionText: {
+    ...FONT_STYLES.captionMedium,
+    color: COLORS.text.secondary,
+  },
+  filterOptionTextActive: {
+    color: COLORS.text.inverse,
+  },
+  clearFiltersButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: SPACING.sm,
+    gap: SPACING.xs,
+  },
+  clearFiltersText: {
+    ...FONT_STYLES.captionMedium,
+    color: COLORS.text.secondary,
   },
 
-  headerTitle: {
-    ...FONT_STYLES.h2,
-    color: '#8b5cf6',
-  },
   feed: {
     flex: 1,
+    backgroundColor: '#f8fafc',
+    paddingTop: 8,
   },
   postContainer: {
     backgroundColor: '#fff',
     marginBottom: 20,
+    marginHorizontal: 16,
+    borderRadius: 20,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    elevation: 5,
+    overflow: 'hidden',
   },
   postHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 15,
-    paddingVertical: 10,
+    paddingHorizontal: 20,
+    paddingVertical: 16,
   },
   userInfo: {
     flexDirection: 'row',
     alignItems: 'center',
+    flex: 1,
+  },
+  userInfoText: {
+    flex: 1,
   },
   userAvatar: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 10,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 14,
+    borderWidth: 3,
+    borderColor: '#f1f5f9',
   },
   userAvatarFallback: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    marginRight: 10,
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    marginRight: 14,
     backgroundColor: '#8b5cf6',
     justifyContent: 'center',
     alignItems: 'center',
+    borderWidth: 3,
+    borderColor: '#f1f5f9',
   },
   userAvatarFallbackText: {
     color: '#fff',
-    fontSize: 16,
+    fontSize: 18,
     fontWeight: 'bold',
   },
   username: {
-    ...FONT_STYLES.bodyBold,
+    fontSize: 16,
+    fontWeight: '700',
+    color: '#1f2937',
+    letterSpacing: -0.2,
+  },
+  moreButton: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#f9fafb',
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   usernameRow: {
     flexDirection: 'row',
@@ -1269,22 +1800,23 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 15,
-    paddingVertical: 10,
+    paddingHorizontal: 16,
+    paddingVertical: 12,
   },
   leftActions: {
     flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
   },
   actionButton: {
-    marginRight: 15,
     flexDirection: 'row',
     alignItems: 'center',
+    padding: 4,
   },
-  likes: {
-    ...FONT_STYLES.bodyBold,
-    paddingHorizontal: 15,
-    paddingBottom: 10,
+  bookmarkButton: {
+    padding: 4,
   },
+
   // AI Post Styles
   aiBadge: {
     flexDirection: 'row',
@@ -1564,6 +2096,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: '#8b5cf6',
   },
+  likeCount: {
+    marginLeft: 4,
+    fontSize: 12,
+    fontWeight: '600',
+    color: '#8b5cf6',
+  },
   // Bildirim Stilleri
   notificationContainer: {
     position: 'absolute',
@@ -1648,6 +2186,26 @@ const styles = StyleSheet.create({
     color: '#fff',
     fontWeight: '600',
     marginLeft: 6,
+  },
+  // Etiket Stilleri - Daha kompakt
+  tagsContainer: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 4,
+    marginTop: 6,
+  },
+  tagItem: {
+    backgroundColor: '#f3f4f6',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: 0.5,
+    borderColor: '#d1d5db',
+  },
+  tagText: {
+    fontSize: 10,
+    fontWeight: '500',
+    color: '#6b7280',
   },
 
 });

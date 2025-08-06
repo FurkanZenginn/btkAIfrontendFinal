@@ -101,12 +101,17 @@ const HapBilgiCard = ({ hapBilgi, onSimilarQuestions, style }) => {
         </View>
       </View>
       
-      {/* Anahtar Kelimeler */}
-      {hapBilgi.keywords && hapBilgi.keywords.length > 0 && (
-        <View style={styles.keywordsContainer}>
-          {hapBilgi.keywords.slice(0, 5).map((keyword, index) => (
-            <Text key={index} style={styles.keyword}>#{keyword}</Text>
-          ))}
+      {/* AI Etiketleri */}
+      {(hapBilgi.tags || hapBilgi.keywords) && (hapBilgi.tags || hapBilgi.keywords).length > 0 && (
+        <View style={styles.tagsContainer}>
+          <Text style={styles.tagsLabel}>🏷️ AI Etiketleri:</Text>
+          <View style={styles.tagsList}>
+            {(hapBilgi.tags || hapBilgi.keywords).slice(0, 6).map((tag, index) => (
+              <View key={index} style={styles.tagBadge}>
+                <Text style={styles.tagText}>{tag}</Text>
+              </View>
+            ))}
+          </View>
         </View>
       )}
       
@@ -225,14 +230,18 @@ const styles = StyleSheet.create({
   },
   title: {
     ...FONT_STYLES.h3,
-    color: '#2c3e50',
-    marginBottom: 8,
+    color: '#1f2937',
+    marginBottom: 12,
+    fontSize: 18,
+    fontWeight: '700',
+    lineHeight: 24,
   },
   content: {
     ...FONT_STYLES.body,
-    color: '#34495e',
-    lineHeight: 20,
-    marginBottom: 12,
+    color: '#374151',
+    lineHeight: 22,
+    marginBottom: 16,
+    fontSize: 15,
   },
   metaContainer: {
     flexDirection: 'row',
@@ -247,7 +256,8 @@ const styles = StyleSheet.create({
   categoryText: {
     ...FONT_STYLES.caption,
     color: '#fff',
-    fontWeight: '600',
+    fontWeight: '700',
+    fontSize: 12,
   },
   difficultyBadge: {
     paddingHorizontal: 12,
@@ -257,22 +267,38 @@ const styles = StyleSheet.create({
   difficultyText: {
     ...FONT_STYLES.caption,
     color: '#fff',
-    fontWeight: '600',
+    fontWeight: '700',
+    fontSize: 12,
   },
-  keywordsContainer: {
-    flexDirection: 'row',
-    flexWrap: 'wrap',
+  tagsContainer: {
     marginBottom: 12,
   },
-  keyword: {
+  tagsLabel: {
     ...FONT_STYLES.caption,
-    color: '#3498db',
-    backgroundColor: '#ecf0f1',
+    color: '#6b7280',
+    marginBottom: 8,
+    fontWeight: '700',
+    fontSize: 13,
+  },
+  tagsList: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+  },
+  tagBadge: {
+    backgroundColor: '#e3f2fd',
+    borderWidth: 1,
+    borderColor: '#2196f3',
     paddingHorizontal: 8,
     paddingVertical: 4,
     borderRadius: 12,
     marginRight: 6,
     marginBottom: 4,
+  },
+  tagText: {
+    ...FONT_STYLES.caption,
+    color: '#1976d2',
+    fontWeight: '600',
+    fontSize: 12,
   },
   statsContainer: {
     flexDirection: 'row',
@@ -285,8 +311,10 @@ const styles = StyleSheet.create({
   },
   statText: {
     ...FONT_STYLES.caption,
-    color: '#7f8c8d',
-    marginLeft: 4,
+    color: '#6b7280',
+    marginLeft: 6,
+    fontSize: 13,
+    fontWeight: '600',
   },
   actionsContainer: {
     flexDirection: 'row',
@@ -309,8 +337,9 @@ const styles = StyleSheet.create({
   actionText: {
     ...FONT_STYLES.caption,
     color: '#6c757d',
-    marginLeft: 4,
-    fontWeight: '500',
+    marginLeft: 6,
+    fontWeight: '600',
+    fontSize: 13,
   },
   actionTextActive: {
     color: '#fff',

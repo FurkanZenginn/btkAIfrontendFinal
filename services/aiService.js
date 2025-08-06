@@ -102,21 +102,137 @@ class AIService {
     }
   }
 
-  // Hızlı AI soru sorma (2x daha hızlı endpoint)
-  async askFast(prompt, responseType = 'step-by-step', imageURL = null, postId = null) {
+  // Yorum analizi - Soru ve yorumu birlikte analiz et
+  async analyzeComment(postContent, commentText, postType = 'soru') {
+    try {
+      console.log('🤖 AI Comment Analysis - Post:', postContent);
+      console.log('🤖 AI Comment Analysis - Comment:', commentText);
+      
+      const token = await authService.getToken();
+      
+      // AI'ya gönderilecek analiz prompt'u
+      const analysisPrompt = `
+Soru/Yorum Analizi Görevi:
+
+POST İÇERİĞİ: ${postContent}
+POST TÜRÜ: ${postType}
+KULLANICI YORUMU: ${commentText}
+
+Lütfen şunları analiz et:
+1. Sorunun konusu ve zorluk seviyesi
+2. Kullanıcı yorumunun doğruluğu
+3. Yorumda eksik olan noktalar
+4. İyileştirme önerileri
+
+Kısa ve öz bir analiz yap (maksimum 2-3 cümle). 
+Format: "💡 [Kısa analiz ve öneri]"
+      `;
+      
+      const requestData = { 
+        prompt: analysisPrompt, 
+        responseType: "direct-solution" 
+      };
+      
+             // Retry mekanizması ile AI çağrısı
+       let lastError;
+       for (let attempt = 1; attempt <= 3; attempt++) {
+         try {
+           console.log(`🤖 AI Comment Analysis - Attempt ${attempt}/3`);
+           
+           // Timeout ile API çağrısı (30 saniye)
+           const controller = new AbortController();
+           const timeoutId = setTimeout(() => controller.abort(), 30000);
+           
+           try {
+             const response = await api.post(
+               API_ENDPOINTS.AI.QUESTION,
+               requestData,
+               token
+             );
+             
+             clearTimeout(timeoutId);
+             console.log('🤖 AI Comment Analysis - Response:', response);
+             return response;
+           } catch (timeoutError) {
+             clearTimeout(timeoutId);
+             if (timeoutError.name === 'AbortError') {
+               console.error(`🤖 AI Comment Analysis - Attempt ${attempt} timeout`);
+               throw new Error('AI servisi çok uzun sürdü');
+             }
+             throw timeoutError;
+           }
+         } catch (error) {
+           lastError = error;
+           console.error(`🤖 AI Comment Analysis - Attempt ${attempt} failed:`, error.message);
+           
+           if (attempt < 3) {
+             // 3 saniye bekle ve tekrar dene
+             await new Promise(resolve => setTimeout(resolve, 3000));
+           }
+         }
+       }
+      
+             // Tüm denemeler başarısız
+       console.error('🤖 AI Comment Analysis - All attempts failed');
+       console.error('🤖 Last error details:', lastError);
+       return { 
+         success: false, 
+         error: 'AI servisi geçici olarak kullanılamıyor. Lütfen daha sonra tekrar deneyin.',
+         status: 503,
+         details: lastError?.message || 'Unknown error'
+       };
+    } catch (error) {
+      console.error('Analyze comment error:', error);
+      return { success: false, error: 'Yorum analizi yapılırken bir hata oluştu.' };
+    }
+  }
+
+  // Hızlı AI soru sorma (basit soru-cevap)
+  async askFast(prompt, imageURL = null, conversationHistory = [], isHapBilgiRequest = false) {
     try {
       console.log('🚀 AI Fast Service - Question:', prompt);
-      console.log('🚀 AI Fast Service - Response Type:', responseType);
+      console.log('🚀 AI Fast Service - Conversation History:', conversationHistory);
 
       const token = await authService.getToken();
       console.log('🚀 AI Fast Service - Token:', token ? 'Token var' : 'Token yok');
 
+      // Matematik formülleri için gelişmiş prompt iyileştirme
+      let enhancedPrompt = prompt;
+      
+      // Matematik formatı talimatları ekle
+      const mathFormatInstructions = `
+
+📐 MATEMATİK FORMATI TALİMATLARI:
+ÖNEMLİ: Matematik formüllerini şu formatta ver:
+• v = v₀ + a·t (alt simge için ₀ kullan)
+• x = x₀ + v₀·t + ½at² (kesir için ½ kullan)
+• v² = v₀² + 2a(x-x₀) (üs için ² kullan)
+• F = ma (çarpma için · kullan)
+• E = mc² (üs için ² kullan)
+• sin(θ) = a/c (fonksiyonlar için normal yazı)
+
+❌ LaTeX formatı kullanma: $v = v_0 + a \cdot t$
+✅ Unicode karakterler kullan: v = v₀ + a·t
+
+`;
+      
+      // Konuşma geçmişi varsa ve Hap Bilgi isteği değilse, prompt'a ekle
+      if (conversationHistory && conversationHistory.length > 0 && !isHapBilgiRequest) {
+        const historyText = conversationHistory
+          .map(msg => `${msg.role === 'user' ? 'Kullanıcı' : 'AI'}: ${msg.content}`)
+          .join('\n');
+        enhancedPrompt = `[KONUŞMA GEÇMİŞİ]\n${historyText}\n\n[YENİ SORU]\n${enhancedPrompt}${mathFormatInstructions}`;
+      } else {
+        // Hap Bilgi isteği ise sadece mevcut soruyu kullan
+        enhancedPrompt = `${enhancedPrompt}${mathFormatInstructions}`;
+      }
+      
       // Backend'in beklediği format
       const requestData = {
-        prompt,
-        responseType, // 'step-by-step' veya 'direct-solution'
+        prompt: enhancedPrompt,
+        responseType: 'simple', // Basit yanıt türü
         imageURL: imageURL || null,
-        postId: postId || null
+        conversationHistory: conversationHistory || []
       };
       console.log('🚀 AI Fast Service - Request data:', requestData);
 
@@ -139,6 +255,8 @@ class AIService {
         const result = await response.json();
         
         console.log('🚀 AI Fast Service - Full response:', result);
+        console.log('🚀 AI Fast Service - Response status:', response.status);
+        console.log('🚀 AI Fast Service - Response headers:', response.headers);
         
         // Backend'den gelen response'u doğrudan döndür
         return result;
@@ -202,12 +320,13 @@ class AIService {
   }
 
   // AI soru paylaşma - Post oluşturma
-  async shareQuestion(content, imageUri = null, postType = 'soru') {
+  async shareQuestion(content, imageUri = null, postType = 'soru', shareTags = []) {
     try {
       console.log('📝 AI Share Question - Creating post from modal');
       console.log('📝 postType:', postType);
       console.log('📝 content:', content);
       console.log('📝 imageUri:', imageUri);
+      console.log('📝 shareTags:', shareTags);
 
       const token = await authService.getToken();
       if (!token) {
@@ -229,9 +348,13 @@ class AIService {
         const postData = {
           postType: postType,
           content: content,
+          tags: shareTags, // Etiketleri ekle
         };
 
         console.log('📸 Creating post with image:', { postData, imageFile });
+        console.log('📸 Image URI:', imageUri);
+        console.log('📸 Image file object:', imageFile);
+        
         const result = await postsService.createPostWithImage(postData, imageFile);
         return result;
       } else {
@@ -239,6 +362,7 @@ class AIService {
         const postData = {
           postType: postType,
           content: content,
+          tags: shareTags, // Etiketleri ekle
         };
 
         console.log('📝 Creating text-only post:', postData);
@@ -319,6 +443,33 @@ class AIService {
     } catch (error) {
       console.error('User analysis error:', error);
       return { success: false, error: 'Kullanıcı analizi yapılırken bir hata oluştu.' };
+    }
+  }
+
+  // Sistem durumu kontrolü
+  async checkSystemStatus() {
+    try {
+      console.log('🔍 Checking system status...');
+      
+      const response = await api.get('/ai/system-status');
+      
+      console.log('🔍 System status response:', response);
+      return response;
+    } catch (error) {
+      console.error('System status check error:', error);
+      
+      // Hata detaylarını logla
+      if (error.response) {
+        console.error('🔍 Error response status:', error.response.status);
+        console.error('🔍 Error response data:', error.response.data);
+      }
+      
+      return { 
+        success: false, 
+        error: 'Sistem durumu kontrol edilirken bir hata oluştu.',
+        details: error.message || 'Unknown error',
+        status: error.response?.status || 'No status'
+      };
     }
   }
 

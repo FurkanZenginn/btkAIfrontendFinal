@@ -21,7 +21,7 @@ import { FONT_STYLES, FONTS, FONT_WEIGHTS, FONT_SIZES } from '../utils/fonts';
 import gamificationService from '../services/gamificationService';
 
 
-export default function MessagesScreen({ navigation }) {
+export default function ToolsScreen({ navigation }) {
   const [selectedCard, setSelectedCard] = useState(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -41,21 +41,21 @@ export default function MessagesScreen({ navigation }) {
   // Hızlı erişim kartları
   const quickCards = [
     {
-      id: 'quiz',
-      title: 'Quiz',
-      subtitle: 'Bilgi Testleri',
-      icon: 'help-circle-outline',
-      color: '#8b5cf6',
-      gradient: ['#8b5cf6', '#a855f7'],
-      onPress: () => console.log('Quiz kartına tıklandı'),
+      id: 'study-planner',
+      title: 'Çalışma Planı',
+      subtitle: 'Günlük Hedefler',
+      icon: 'calendar-outline',
+      color: '#f59e0b',
+      gradient: ['#f59e0b', '#fbbf24', '#fcd34d'],
+      onPress: () => console.log('Çalışma planı kartına tıklandı'),
     },
     {
       id: 'hap-bilgi',
-      title: 'HAP',
-      subtitle: 'Bilgi',
-      icon: 'medical-outline',
+      title: 'HAP BİLGİ',
+      subtitle: 'AI Destekli Öğrenme',
+      icon: 'sparkles',
       color: '#10b981',
-      gradient: ['#10b981', '#34d399'],
+      gradient: ['#10b981', '#34d399', '#6ee7b7'],
       onPress: () => navigation.navigate('HapBilgi'),
     },
   ];
@@ -133,16 +133,34 @@ export default function MessagesScreen({ navigation }) {
         const userData = profileResult.data.data?.user || profileResult.data.user;
         const statsData = profileResult.data.data?.stats || profileResult.data.stats;
         
+        console.log('🔍 Profile data debug:', { userData, statsData });
+        console.log('🔍 User XP:', userData?.xp);
+        console.log('🔍 Stats data:', statsData);
+        
         if (userData && statsData) {
+          // Puan değerini doğru şekilde al
+          const userPoints = userData.xp || userData.points || userData.totalPoints || 0;
+          const solvedQuestions = statsData.postsCreated || statsData.solvedQuestions || 0;
+          const weeklyActivity = statsData.aiInteractions || statsData.weeklyActivity || 0;
+          const weakTopics = statsData.weakTopics || 3; // Varsayılan değer
+          
+          console.log('📊 Processed stats:', { userPoints, solvedQuestions, weeklyActivity, weakTopics });
+          
           const newStats = [
-            { label: 'Çözülen Soru', value: statsData.postsCreated?.toString() || '0', icon: 'checkmark-circle-outline', color: '#10b981' },
-            { label: 'Zayıf Konu', value: '3', icon: 'alert-circle-outline', color: '#ef4444' }, // TODO: Backend'den al
-            { label: 'Bu Hafta', value: statsData.aiInteractions?.toString() || '0', icon: 'calendar-outline', color: '#f59e0b' },
-            { label: 'Puan', value: userData.xp?.toString() || '0', icon: 'trophy-outline', color: '#8b5cf6' },
+            { label: 'Çözülen Soru', value: solvedQuestions.toString(), icon: 'checkmark-circle-outline', color: '#10b981' },
+            { label: 'Zayıf Konu', value: weakTopics.toString(), icon: 'alert-circle-outline', color: '#ef4444' },
+            { label: 'Bu Hafta', value: weeklyActivity.toString(), icon: 'calendar-outline', color: '#f59e0b' },
+            { label: 'Puan', value: userPoints.toString(), icon: 'trophy-outline', color: '#8b5cf6' },
           ];
           setLearningStats(newStats);
           setProfileData(userData);
+        } else {
+          console.log('❌ User data or stats data missing');
+          setLearningStats(defaultStats);
         }
+      } else {
+        console.log('❌ Profile result not successful:', profileResult);
+        setLearningStats(defaultStats);
       }
 
       // Liderlik tablosu verilerini işle
@@ -173,10 +191,8 @@ export default function MessagesScreen({ navigation }) {
       console.error('Veri yüklenirken hata:', error);
       setLearningStats(defaultStats);
       setLeaderboard(defaultLeaderboard);
-
     } finally {
       setLoading(false);
-
     }
   };
 
@@ -206,9 +222,12 @@ export default function MessagesScreen({ navigation }) {
     <SafeAreaView style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Öğrenme Merkezi</Text>
+        <View style={styles.headerContent}>
+          <Text style={styles.headerTitle}>Öğrenme Araçları</Text>
+          <Text style={styles.headerSubtitle}>İstatistikler ve gelişim</Text>
+        </View>
         <TouchableOpacity style={styles.searchButton}>
-          <Ionicons name="search-outline" size={24} color="#8b5cf6" />
+          <Ionicons name="search-outline" size={24} color="#374151" />
         </TouchableOpacity>
       </View>
 
@@ -228,7 +247,6 @@ export default function MessagesScreen({ navigation }) {
                 key={card.id}
                 style={[
                   styles.quickCard,
-                  { backgroundColor: card.gradient[0] },
                   selectedCard === card.id && styles.selectedCard
                 ]}
                 onPress={() => {
@@ -237,13 +255,51 @@ export default function MessagesScreen({ navigation }) {
                 }}
                 activeOpacity={0.8}
               >
-                <View style={styles.cardContent}>
-                  <View style={[styles.cardIcon, { backgroundColor: 'rgba(255,255,255,0.2)' }]}>
-                    <Ionicons name={card.icon} size={28} color="#fff" />
+                <LinearGradient
+                  colors={card.gradient}
+                  style={styles.cardGradient}
+                  start={{ x: 0, y: 0 }}
+                  end={{ x: 1, y: 1 }}
+                >
+                  <View style={styles.cardContent}>
+                    <View style={styles.cardIconContainer}>
+                      <View style={styles.cardIcon}>
+                        <Ionicons name={card.icon} size={28} color="#fff" />
+                      </View>
+                      {(card.id === 'hap-bilgi' || card.id === 'study-planner') && (
+                        <View style={styles.aiBadge}>
+                          <Text style={styles.aiBadgeText}>{card.id === 'hap-bilgi' ? 'AI' : 'NEW'}</Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.cardTitle}>{card.title}</Text>
+                    <Text style={styles.cardSubtitle}>{card.subtitle}</Text>
+                    {card.id === 'hap-bilgi' && (
+                      <View style={styles.cardFeatures}>
+                        <View style={styles.featureItem}>
+                          <Ionicons name="checkmark-circle" size={12} color="#fff" />
+                          <Text style={styles.featureText}>Akıllı Analiz</Text>
+                        </View>
+                        <View style={styles.featureItem}>
+                          <Ionicons name="checkmark-circle" size={12} color="#fff" />
+                          <Text style={styles.featureText}>Hızlı Öğrenme</Text>
+                        </View>
+                      </View>
+                    )}
+                    {card.id === 'study-planner' && (
+                      <View style={styles.cardFeatures}>
+                        <View style={styles.featureItem}>
+                          <Ionicons name="checkmark-circle" size={12} color="#fff" />
+                          <Text style={styles.featureText}>Günlük Hedefler</Text>
+                        </View>
+                        <View style={styles.featureItem}>
+                          <Ionicons name="checkmark-circle" size={12} color="#fff" />
+                          <Text style={styles.featureText}>İlerleme Takibi</Text>
+                        </View>
+                      </View>
+                    )}
                   </View>
-                  <Text style={styles.cardTitle}>{card.title}</Text>
-                  <Text style={styles.cardSubtitle}>{card.subtitle}</Text>
-                </View>
+                </LinearGradient>
               </TouchableOpacity>
             ))}
           </View>
@@ -419,16 +475,31 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 20,
-    paddingVertical: 15,
-    paddingTop: Platform.OS === 'android' ? 35 : 15,
+    paddingVertical: 20,
+    paddingTop: Platform.OS === 'android' ? 40 : 20,
     backgroundColor: '#fff',
     borderBottomWidth: 1,
-    borderBottomColor: '#e5e7eb',
+    borderBottomColor: '#f1f5f9',
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    elevation: 3,
+  },
+  headerContent: {
+    flex: 1,
   },
   headerTitle: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: '#1f2937',
+    fontSize: 26,
+    fontWeight: '800',
+    color: '#0f172a',
+    marginBottom: 4,
+    letterSpacing: -0.5,
+  },
+  headerSubtitle: {
+    fontSize: 15,
+    color: '#64748b',
+    fontWeight: '500',
   },
   searchButton: {
     padding: 8,
@@ -436,15 +507,17 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
     padding: 20,
+    backgroundColor: '#f8fafc',
   },
   quickCardsSection: {
-    marginBottom: 30,
+    marginBottom: 32,
   },
   sectionTitle: {
-    fontSize: 18,
-    fontWeight: '600',
-    color: '#1f2937',
-    marginBottom: 15,
+    fontSize: 20,
+    fontWeight: '700',
+    color: '#0f172a',
+    marginBottom: 18,
+    letterSpacing: -0.3,
   },
   sectionSubtitle: {
     fontSize: 14,
@@ -453,19 +526,23 @@ const styles = StyleSheet.create({
   },
   quickCardsContainer: {
     flexDirection: 'row',
-    gap: 15,
+    gap: 16,
   },
   quickCard: {
     flex: 1,
-    height: 120,
-    borderRadius: 16,
+    height: 160,
+    borderRadius: 20,
+    overflow: 'hidden',
+    elevation: 8,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.15,
+    shadowRadius: 16,
+  },
+  cardGradient: {
+    flex: 1,
     padding: 16,
     justifyContent: 'center',
-    elevation: 3,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.1,
-    shadowRadius: 4,
   },
   selectedCard: {
     transform: [{ scale: 0.95 }],
@@ -473,23 +550,63 @@ const styles = StyleSheet.create({
   cardContent: {
     alignItems: 'center',
   },
+  cardIconContainer: {
+    position: 'relative',
+    marginBottom: 8,
+  },
   cardIcon: {
-    width: 50,
-    height: 50,
-    borderRadius: 25,
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: 'rgba(255, 255, 255, 0.25)',
     justifyContent: 'center',
     alignItems: 'center',
-    marginBottom: 8,
+    marginBottom: 12,
+  },
+  aiBadge: {
+    position: 'absolute',
+    top: -5,
+    right: -5,
+    backgroundColor: '#fbbf24',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: '#fff',
+  },
+  aiBadgeText: {
+    fontSize: 10,
+    fontWeight: 'bold',
+    color: '#fff',
+  },
+  cardFeatures: {
+    marginTop: 8,
+    gap: 3,
+  },
+  featureItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  featureText: {
+    fontSize: 8,
+    color: 'rgba(255, 255, 255, 0.9)',
+    fontWeight: '500',
   },
   cardTitle: {
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '700',
     color: '#fff',
-    marginBottom: 2,
+    marginBottom: 4,
+    textAlign: 'center',
+    letterSpacing: -0.2,
   },
   cardSubtitle: {
     fontSize: 12,
-    color: 'rgba(255,255,255,0.8)',
+    color: 'rgba(255,255,255,0.9)',
+    textAlign: 'center',
+    marginBottom: 6,
+    fontWeight: '500',
   },
   statsSection: {
     marginBottom: 30,
@@ -815,12 +932,7 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: 14,
     color: '#6b7280',
-    marginTop: 4,
-  },
-  emptyStateText: {
-    fontSize: 14,
-    color: '#6b7280',
     textAlign: 'center',
     marginTop: 5,
   },
-});
+}); 

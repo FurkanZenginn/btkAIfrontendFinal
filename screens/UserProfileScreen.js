@@ -11,19 +11,23 @@ import {
   RefreshControl,
   Dimensions,
   Alert,
+  Platform,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../contexts/AuthContext';
 import userService from '../services/userService';
 import postsService from '../services/postsService';
-import { FONT_STYLES, FONTS, FONT_WEIGHTS, FONT_SIZES } from '../utils/fonts';
+import { COLORS, SPACING, BORDER_RADIUS, SHADOWS, FONT_STYLES } from '../utils';
 
 const { width } = Dimensions.get('window');
-const photoSize = (width - 30) / 3; // 3 photos per row with minimal margins
+const photoSize = (width - 30) / 3;
 
-const StatItem = ({ number, label }) => (
+const StatItem = ({ number, label, icon }) => (
   <View style={styles.statItem}>
+    <View style={styles.statIconContainer}>
+      <Ionicons name={icon} size={20} color={COLORS.primary[500]} />
+    </View>
     <Text style={styles.statNumber}>{number}</Text>
     <Text style={styles.statLabel}>{label}</Text>
   </View>
@@ -31,7 +35,7 @@ const StatItem = ({ number, label }) => (
 
 export default function UserProfileScreen({ route, navigation }) {
   const { userId, username } = route.params;
-  const { user: currentUser } = useAuth();
+  const { user: currentUser, updateFollowingList } = useAuth();
   
   const [userProfile, setUserProfile] = useState(null);
   const [userPosts, setUserPosts] = useState([]);
@@ -60,6 +64,12 @@ export default function UserProfileScreen({ route, navigation }) {
         const profile = profileResult.data;
         console.log('📊 Profile data:', profile);
         console.log('📊 Is following from backend:', profile.isFollowing);
+        console.log('📊 User name from backend:', profile.name);
+        console.log('📊 User username from backend:', profile.username);
+        console.log('📊 User avatar from backend:', profile.avatar);
+        console.log('📊 User avatar URL:', profile.avatarURL);
+        console.log('📊 User profile picture:', profile.profilePicture);
+        console.log('📊 Full profile object:', JSON.stringify(profile, null, 2));
         
         setUserProfile(profile);
         
@@ -72,12 +82,16 @@ export default function UserProfileScreen({ route, navigation }) {
         
         setIsFollowing(followingStatus);
         
-        setFollowersCount(profile.followersCount || 0);
-        setFollowingCount(profile.followingCount || 0);
+        // Backend'den gelen followersCount ve followingCount'u doğrudan kullan
+        const followersCount = profile.followersCount || 0;
+        const followingCount = profile.followingCount || 0;
+        
+        setFollowersCount(followersCount);
+        setFollowingCount(followingCount);
         
         console.log('📊 Follow stats:', {
-          followers: profile.followersCount,
-          following: profile.followingCount,
+          followers: followersCount,
+          following: followingCount,
           isFollowing: followingStatus
         });
       }
@@ -85,10 +99,9 @@ export default function UserProfileScreen({ route, navigation }) {
       if (postsResult.success && postsResult.data) {
         setUserPosts(postsResult.data);
       }
-
     } catch (error) {
-      console.error('❌ Kullanıcı profili yüklenirken hata:', error);
-      Alert.alert('Hata', 'Kullanıcı profili yüklenirken bir hata oluştu.');
+      console.error('❌ User profile loading error:', error);
+      Alert.alert('Hata', 'Profil bilgileri yüklenirken bir hata oluştu.');
     } finally {
       setLoading(false);
     }
@@ -96,40 +109,40 @@ export default function UserProfileScreen({ route, navigation }) {
 
   const handleFollow = async () => {
     try {
-      console.log('🔗 Follow button pressed for userId:', userId);
-      console.log('🔗 Current isFollowing state:', isFollowing);
+      console.log('🔗 Follow/Unfollow action for user:', userId);
+      console.log('🔗 Current following status:', isFollowing);
       
       const result = await userService.followUser(userId);
-      console.log('🔗 Follow operation result:', result);
       
       if (result.success) {
-        // Backend'den gelen isFollowing durumunu kullan
-        const newFollowingState = result.isFollowing;
-        setIsFollowing(newFollowingState);
+        // Backend'den gelen isFollowing değerini kullan
+        const newFollowingStatus = result.isFollowing;
+        console.log('✅ Backend returned following status:', newFollowingStatus);
+        
+        setIsFollowing(newFollowingStatus);
         
         // Takipçi sayısını güncelle
-        setFollowersCount(prev => {
-          const newCount = newFollowingState ? prev + 1 : prev - 1;
-          console.log('📊 Followers count updated:', { prev, newCount, newFollowingState });
-          return newCount;
-        });
+        if (newFollowingStatus) {
+          setFollowersCount(prev => prev + 1);
+        } else {
+          setFollowersCount(prev => Math.max(0, prev - 1));
+        }
         
-        console.log('✅ Follow state updated:', { 
-          newFollowingState, 
-          newFollowersCount: newFollowingState ? followersCount + 1 : followersCount - 1 
-        });
+        // Kullanıcının following listesini güncelle
+        updateFollowingList(userId, newFollowingStatus);
         
-        Alert.alert(
-          'Başarılı',
-          newFollowingState ? 'Kullanıcı takip edildi' : 'Takip bırakıldı'
-        );
+        console.log('✅ Follow status updated to:', newFollowingStatus);
+        console.log('✅ New followers count:', newFollowingStatus ? followersCount + 1 : Math.max(0, followersCount - 1));
+        
+        // Alert'i kaldır, sadece UI'da göster
+        console.log('✅ Action completed successfully');
       } else {
-        console.error('❌ Follow operation failed:', result.error);
-        Alert.alert('Hata', result.error || 'İşlem başarısız oldu.');
+        console.error('❌ Follow action failed:', result.error);
+        Alert.alert('Hata', result.error || 'İşlem sırasında bir hata oluştu.');
       }
     } catch (error) {
-      console.error('❌ Follow operation error:', error);
-      Alert.alert('Hata', 'Takip işlemi sırasında bir hata oluştu.');
+      console.error('❌ Follow action error:', error);
+      Alert.alert('Hata', 'İşlem sırasında bir hata oluştu.');
     }
   };
 
@@ -140,33 +153,13 @@ export default function UserProfileScreen({ route, navigation }) {
   };
 
   const handlePostPress = (post) => {
-    navigation.navigate('PostDetail', { postId: post._id });
+    console.log('📱 Post pressed:', post.id);
+    navigation.navigate('PostDetail', { postId: post.id });
   };
-
-  const debugFollowStatus = () => {
-    console.log('🔍 Debug Follow Status:');
-    console.log('  - Current user ID:', currentUser?._id);
-    console.log('  - Target user ID:', userId);
-    console.log('  - Is own profile:', currentUser?._id === userId);
-    console.log('  - Is following state:', isFollowing);
-    console.log('  - Followers count:', followersCount);
-    console.log('  - Following count:', followingCount);
-    console.log('  - User profile data:', userProfile);
-  };
-
-  useEffect(() => {
-    loadUserProfile();
-  }, [userId]);
-
-  // Debug için takip durumunu logla
-  useEffect(() => {
-    if (userProfile) {
-      debugFollowStatus();
-    }
-  }, [userProfile, isFollowing]);
 
   const getInitials = (name) => {
-    return name?.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2) || '??';
+    if (!name) return 'K';
+    return name.split(' ').map(n => n[0]).join('').toUpperCase().slice(0, 2);
   };
 
   const formatNumber = (num) => {
@@ -175,62 +168,66 @@ export default function UserProfileScreen({ route, navigation }) {
     return num.toString();
   };
 
+  useEffect(() => {
+    loadUserProfile();
+  }, [userId]);
+
   if (loading) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
-            <Ionicons name="arrow-back" size={24} color="#1f2937" />
+            <Ionicons name="arrow-back" size={24} color={COLORS.text.primary} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Profil</Text>
+          <Text style={styles.headerTitle}>Kullanıcı</Text>
           <View style={styles.placeholder} />
         </View>
         <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color="#8b5cf6" />
+          <ActivityIndicator size="large" color={COLORS.primary[500]} />
           <Text style={styles.loadingText}>Profil yükleniyor...</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   if (!userProfile) {
     return (
-      <SafeAreaView style={styles.container}>
+      <View style={styles.container}>
         <View style={styles.header}>
           <TouchableOpacity 
             style={styles.backButton}
             onPress={() => navigation.goBack()}
           >
-            <Ionicons name="arrow-back" size={24} color="#1f2937" />
+            <Ionicons name="arrow-back" size={24} color={COLORS.text.primary} />
           </TouchableOpacity>
-          <Text style={styles.headerTitle}>Profil</Text>
+          <Text style={styles.headerTitle}>Kullanıcı</Text>
           <View style={styles.placeholder} />
         </View>
         <View style={styles.errorContainer}>
-          <Ionicons name="person-outline" size={64} color="#9ca3af" />
+          <Ionicons name="person-outline" size={64} color={COLORS.text.tertiary} />
           <Text style={styles.errorTitle}>Kullanıcı Bulunamadı</Text>
           <Text style={styles.errorText}>Bu kullanıcı mevcut değil veya silinmiş olabilir.</Text>
         </View>
-      </SafeAreaView>
+      </View>
     );
   }
 
   return (
-    <SafeAreaView style={styles.container}>
+    <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity 
           style={styles.backButton}
           onPress={() => navigation.goBack()}
         >
-          <Ionicons name="arrow-back" size={24} color="#1f2937" />
+          <Ionicons name="arrow-back" size={24} color={COLORS.text.primary} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{userProfile.name || 'Kullanıcı'}</Text>
+        <Text style={styles.headerTitle}>{userProfile.name || userProfile.username || username || 'Kullanıcı'}</Text>
         <TouchableOpacity style={styles.moreButton}>
-          <Ionicons name="ellipsis-horizontal" size={24} color="#1f2937" />
+          <Ionicons name="ellipsis-horizontal" size={24} color={COLORS.text.primary} />
         </TouchableOpacity>
       </View>
 
@@ -245,26 +242,45 @@ export default function UserProfileScreen({ route, navigation }) {
         <View style={styles.profileSection}>
           {/* Profile Picture */}
           <View style={styles.profilePictureContainer}>
-            {userProfile.avatar ? (
-              <Image
-                source={{ uri: userProfile.avatar }}
-                style={styles.profilePicture}
-              />
-            ) : (
-              <View style={styles.initialsOverlay}>
-                <Text style={styles.initials}>
-                  {getInitials(userProfile.name || 'Kullanıcı')}
-                </Text>
-              </View>
-            )}
+            {(() => {
+              // Backend'den gelen avatar URL'sini kullan
+              const avatarUrl = userProfile.avatar;
+              
+              console.log('🎨 Rendering avatar with:', {
+                avatar: userProfile.avatar,
+                finalAvatarUrl: avatarUrl,
+                hasAvatar: !!avatarUrl,
+                userProfileKeys: Object.keys(userProfile)
+              });
+              
+              return avatarUrl ? (
+                <Image
+                  source={{ uri: avatarUrl }}
+                  style={styles.profilePicture}
+                  onError={(error) => {
+                    console.log('❌ Avatar image load error:', error);
+                    console.log('❌ Avatar URL:', avatarUrl);
+                  }}
+                  onLoad={() => {
+                    console.log('✅ Avatar loaded successfully:', avatarUrl);
+                  }}
+                />
+              ) : (
+                <View style={styles.profilePicturePlaceholder}>
+                  <Text style={styles.profilePictureInitials}>
+                    {getInitials(userProfile.name || userProfile.username || 'Kullanıcı')}
+                  </Text>
+                </View>
+              );
+            })()}
           </View>
 
           {/* User Info */}
           <Text style={styles.displayName}>
-            {userProfile.name || 'Kullanıcı'}
+            {userProfile.name || userProfile.username || username || 'Kullanıcı'}
           </Text>
           <Text style={styles.username}>
-            {userProfile.email || 'user@example.com'}
+            @{userProfile.username || userProfile.name?.toLowerCase().replace(/\s+/g, '') || username || 'kullanici'}
           </Text>
           
           {/* Bio */}
@@ -274,24 +290,35 @@ export default function UserProfileScreen({ route, navigation }) {
           
           {/* Level and XP */}
           <View style={styles.levelContainer}>
-            <Text style={styles.levelText}>
-              Seviye {userProfile.level || 1} • {userProfile.xp || 0} XP
-            </Text>
+            <View style={styles.levelHeader}>
+              <View style={styles.levelInfo}>
+                <Ionicons name="trophy" size={20} color={COLORS.warning[500]} />
+                <Text style={styles.levelText}>
+                  Seviye {userProfile.level || 1} • XP
+                </Text>
+              </View>
+            </View>
             <View style={styles.xpBar}>
               <View 
                 style={[
                   styles.xpProgress, 
-                  { width: `${(userProfile.xp || 0) % 100}%` }
+                  { width: `${Math.min((userProfile.xp || 0) % 100, 100)}%` }
                 ]} 
               />
             </View>
+            <Text style={styles.xpText}>
+              {(userProfile.xp || 0) % 100}/100 XP
+            </Text>
+            <Text style={styles.xpText}>
+              Sonraki seviyeye {Math.max(100 - ((userProfile.xp || 0) % 100), 0)} XP kaldı
+            </Text>
           </View>
 
           {/* Stats */}
           <View style={styles.statsContainer}>
-            <StatItem number={userPosts.length} label="Gönderi" />
-            <StatItem number={userProfile.commentsCount || 0} label="Yorum" />
-            <StatItem number={userProfile.aiInteractions || 0} label="AI" />
+            <StatItem number={userPosts.length} label="Gönderi" icon="document-text" />
+            <StatItem number={userProfile.commentsCount || 0} label="Yorum" icon="chatbubble" />
+            <StatItem number={userProfile.aiInteractions || 0} label="AI" icon="sparkles" />
           </View>
 
           {/* Follow Stats */}
@@ -300,10 +327,12 @@ export default function UserProfileScreen({ route, navigation }) {
               style={styles.followStatItem}
               onPress={() => {
                 console.log('👥 Followers button pressed for user:', userId);
-                // TODO: Bu kullanıcının takipçileri sayfasına git
                 Alert.alert('Takipçiler', `${userProfile.name} kullanıcısının ${followersCount} takipçisi var`);
               }}
             >
+              <View style={styles.followStatIconContainer}>
+                <Ionicons name="people" size={20} color={COLORS.text.secondary} />
+              </View>
               <Text style={styles.followStatNumber}>{formatNumber(followersCount)}</Text>
               <Text style={styles.followStatLabel}>Takipçi</Text>
             </TouchableOpacity>
@@ -311,10 +340,12 @@ export default function UserProfileScreen({ route, navigation }) {
               style={styles.followStatItem}
               onPress={() => {
                 console.log('👥 Following button pressed for user:', userId);
-                // TODO: Bu kullanıcının takip ettikleri sayfasına git
                 Alert.alert('Takip Ettikleri', `${userProfile.name} kullanıcısı ${followingCount} kişiyi takip ediyor`);
               }}
             >
+              <View style={styles.followStatIconContainer}>
+                <Ionicons name="person-add" size={20} color={COLORS.text.secondary} />
+              </View>
               <Text style={styles.followStatNumber}>{formatNumber(followingCount)}</Text>
               <Text style={styles.followStatLabel}>Takip Ettikleri</Text>
             </TouchableOpacity>
@@ -362,7 +393,7 @@ export default function UserProfileScreen({ route, navigation }) {
                     <Image source={{ uri: post.imageURL }} style={styles.postImage} />
                   ) : (
                     <View style={styles.postPlaceholder}>
-                      <Ionicons name="document-text-outline" size={24} color="#9ca3af" />
+                      <Ionicons name="document-text-outline" size={24} color={COLORS.text.tertiary} />
                     </View>
                   )}
 
@@ -380,15 +411,15 @@ export default function UserProfileScreen({ route, navigation }) {
             </View>
           ) : (
             <View style={styles.emptyPosts}>
-              <Ionicons name="images-outline" size={48} color="#9ca3af" />
+              <Ionicons name="images-outline" size={48} color={COLORS.text.tertiary} />
               <Text style={styles.emptyPostsTitle}>Henüz Gönderi Yok</Text>
               <Text style={styles.emptyPostsText}>Bu kullanıcı henüz gönderi paylaşmamış.</Text>
             </View>
           )}
-        </View>
-      </ScrollView>
-    </SafeAreaView>
-  );
+                 </View>
+       </ScrollView>
+     </View>
+   );
 }
 
 const styles = StyleSheet.create({
@@ -401,12 +432,20 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
     paddingHorizontal: 16,
-    paddingVertical: 12,
+    paddingVertical: 16,
+    paddingTop: Platform.OS === 'ios' ? 50 : 20,
     borderBottomWidth: 1,
     borderBottomColor: '#e5e7eb',
+    backgroundColor: '#fff',
   },
   backButton: {
-    padding: 8,
+    padding: 12,
+    borderRadius: 20,
+    backgroundColor: 'rgba(0,0,0,0.05)',
+    minWidth: 44,
+    minHeight: 44,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   headerTitle: {
     ...FONT_STYLES.h3,
@@ -453,26 +492,37 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   profilePictureContainer: {
-    width: 100,
-    height: 100,
-    borderRadius: 50,
-    marginBottom: 16,
+    width: 120,
+    height: 120,
+    borderRadius: 60,
+    marginBottom: 20,
     overflow: 'hidden',
     backgroundColor: '#f3f4f6',
+    borderWidth: 4,
+    borderColor: '#8b5cf6',
+    shadowColor: '#000',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.1,
+    shadowRadius: 4,
+    elevation: 3,
   },
   profilePicture: {
     width: '100%',
     height: '100%',
   },
-  initialsOverlay: {
+  profilePicturePlaceholder: {
     width: '100%',
     height: '100%',
     backgroundColor: '#8b5cf6',
     justifyContent: 'center',
     alignItems: 'center',
   },
-  initials: {
-    ...FONT_STYLES.h1,
+  profilePictureInitials: {
+    fontSize: 48,
+    fontWeight: 'bold',
     color: '#fff',
   },
   displayName: {
@@ -498,10 +548,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     marginBottom: 20,
   },
+  levelHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  levelInfo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
   levelText: {
     ...FONT_STYLES.body,
     color: '#6b7280',
-    marginBottom: 8,
   },
   xpBar: {
     width: 200,
@@ -515,6 +574,11 @@ const styles = StyleSheet.create({
     backgroundColor: '#8b5cf6',
     borderRadius: 2,
   },
+  xpText: {
+    ...FONT_STYLES.caption,
+    color: '#6b7280',
+    marginTop: 4,
+  },
   statsContainer: {
     flexDirection: 'row',
     justifyContent: 'space-around',
@@ -523,6 +587,15 @@ const styles = StyleSheet.create({
   },
   statItem: {
     alignItems: 'center',
+  },
+  statIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f3f4f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
   },
   statNumber: {
     ...FONT_STYLES.h3,
@@ -542,6 +615,15 @@ const styles = StyleSheet.create({
   followStatItem: {
     alignItems: 'center',
   },
+  followStatIconContainer: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: '#f3f4f6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
   followStatNumber: {
     ...FONT_STYLES.h3,
     color: '#1f2937',
@@ -553,17 +635,33 @@ const styles = StyleSheet.create({
   },
   followButton: {
     backgroundColor: '#8b5cf6',
-    paddingVertical: 12,
+    paddingVertical: 14,
     paddingHorizontal: 32,
-    borderRadius: 8,
+    borderRadius: 25,
     alignItems: 'center',
     width: '100%',
     maxWidth: 200,
+    shadowColor: '#8b5cf6',
+    shadowOffset: {
+      width: 0,
+      height: 2,
+    },
+    shadowOpacity: 0.3,
+    shadowRadius: 4,
+    elevation: 4,
   },
   followingButton: {
     backgroundColor: '#f3f4f6',
-    borderWidth: 1,
-    borderColor: '#d1d5db',
+    borderWidth: 2,
+    borderColor: '#8b5cf6',
+    shadowColor: '#8b5cf6',
+    shadowOffset: {
+      width: 0,
+      height: 1,
+    },
+    shadowOpacity: 0.2,
+    shadowRadius: 2,
+    elevation: 2,
   },
   followButtonText: {
     ...FONT_STYLES.button,

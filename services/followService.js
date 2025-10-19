@@ -111,6 +111,43 @@ class FollowService {
       throw error;
     }
   }
+
+  // Kullanıcının takip ettiği kişilerin listesini getir
+  async getFollowingList(userId = null) {
+    try {
+      const token = await authService.getToken();
+      if (!token) {
+        throw new Error('Token eksik');
+      }
+
+      // userId parametresi verilmişse onu kullan, yoksa token'dan çıkar
+      let targetUserId = userId;
+      if (!targetUserId) {
+        try {
+          const userData = await authService.getUser();
+          if (userData && userData._id) {
+            targetUserId = userData._id;
+          } else {
+            throw new Error('Kullanıcı bilgisi bulunamadı');
+          }
+        } catch (error) {
+          console.error('Kullanıcı bilgisi alınırken hata:', error);
+          throw new Error('Kullanıcı bilgisi alınamadı');
+        }
+      }
+
+      // ✅ DOĞRU endpoint: /user/:userId/following
+      const result = await authenticatedApiRequest(`/user/${targetUserId}/following`, token, {
+        method: 'GET',
+      });
+
+      console.log('Following list alındı:', result);
+      return result;
+    } catch (error) {
+      console.error('Following list alınırken hata:', error);
+      throw error;
+    }
+  }
 }
 
 export default new FollowService(); 

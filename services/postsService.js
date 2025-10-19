@@ -2,6 +2,127 @@ import api, { API_ENDPOINTS } from './api';
 import authService from './authService';
 
 class PostsService {
+  // Etiketlere göre benzer sorular getir (post ekranındaki postlardan)
+  async getSimilarQuestionsByTags(tags, limit = 10) {
+    try {
+      console.log('🔍 Getting similar questions by tags:', tags);
+      
+      // Kullanıcı ID'sini al
+      const user = await authService.getUser();
+      const userId = user?._id;
+      console.log('🔍 Similar Questions - User ID:', userId);
+      
+      // Etiketleri normalize et ve filtrele
+      const normalizedTags = Array.isArray(tags) 
+        ? tags.map(tag => tag.replace('#', '').toLowerCase())
+        : [tags?.replace('#', '').toLowerCase()].filter(Boolean);
+      
+      console.log('🏷️ Normalized tags:', normalizedTags);
+      
+      // 1. Önce post ekranındaki tüm postları getir (daha fazla veri için)
+      const allPostsResponse = await api.get(
+        `${API_ENDPOINTS.POSTS.LIST}?limit=50&type=all`
+      );
+      
+             console.log('📡 All posts response:', allPostsResponse);
+       
+       if (!allPostsResponse.success || !allPostsResponse.data) {
+         console.log('❌ Failed to fetch posts');
+         return { success: false, data: [] };
+       }
+       
+       // Backend'den gelen veri yapısını kontrol et (çift data sarması var)
+       const postsData = allPostsResponse.data?.data || allPostsResponse.data;
+       const allPosts = postsData?.posts || postsData || [];
+       
+       console.log('🔍 Data structure debug:');
+       console.log('  - allPostsResponse.data:', allPostsResponse.data);
+       console.log('  - postsData:', postsData);
+       console.log('  - allPosts:', allPosts);
+       console.log('  - allPosts type:', typeof allPosts);
+       console.log('  - allPosts is array:', Array.isArray(allPosts));
+       console.log('📊 Total posts fetched:', allPosts.length);
+      
+      // 2. Etiketlere göre filtrele
+      const filteredPosts = allPosts.filter(post => {
+        // Post'un etiketlerini al
+        const postTags = post.tags || post.topicTags || [];
+        const normalizedPostTags = Array.isArray(postTags) 
+          ? postTags.map(tag => tag.replace('#', '').toLowerCase())
+          : [postTags?.replace('#', '').toLowerCase()].filter(Boolean);
+        
+        // Hap Bilgi etiketleri ile post etiketlerini karşılaştır
+        const hasMatchingTag = normalizedTags.some(hapTag => 
+          normalizedPostTags.some(postTag => 
+            postTag.includes(hapTag) || hapTag.includes(postTag)
+          )
+        );
+        
+        console.log('🏷️ Post tag comparison:', {
+          postId: post._id,
+          hapTags: normalizedTags,
+          postTags: normalizedPostTags,
+          hasMatch: hasMatchingTag
+        });
+        
+        return hasMatchingTag;
+      });
+      
+      console.log('📊 Posts with matching tags:', filteredPosts.length);
+      
+             // 3. Daha geniş post tipi filtresi - soru, danışma, tartışma hepsi
+       console.log('🔍 Post type filtering debug:');
+       filteredPosts.forEach((post, index) => {
+         const isSoru = post.postType === 'soru';
+         const isQuestion = post.postType === 'question';
+         const isDanisma = post.postType === 'danışma';
+         const isTartisma = post.postType === 'tartışma';
+         const hasQuestionMark = post.content?.includes('?') || post.caption?.includes('?');
+         const passes = isSoru || isQuestion || isDanisma || isTartisma || hasQuestionMark;
+         
+         console.log(`  Post ${index + 1}:`, {
+           id: post._id.substring(post._id.length - 6),
+           postType: post.postType,
+           isSoru,
+           isQuestion,
+           isDanisma,
+           isTartisma,
+           hasQuestionMark,
+           passes,
+           content: (post.content || post.caption || '').substring(0, 30) + '...'
+         });
+       });
+       
+       const questionPosts = filteredPosts.filter(post => 
+         post.postType === 'soru' || post.postType === 'question' || 
+         post.postType === 'danışma' || post.postType === 'tartışma' ||
+         post.content?.includes('?') || post.caption?.includes('?')
+       );
+       
+       console.log('📊 Question posts found:', questionPosts.length);
+      
+      // 4. Tekrarlanan postları kaldır
+      const uniqueQuestions = questionPosts.filter((post, index, self) => 
+        index === self.findIndex(p => p._id === post._id)
+      );
+      
+      // 5. Tarihe göre sırala (yeni önce)
+      const sortedQuestions = uniqueQuestions.sort((a, b) => 
+        new Date(b.createdAt) - new Date(a.createdAt)
+      );
+      
+      console.log('✅ Final similar questions:', sortedQuestions.length);
+      
+      return {
+        success: true,
+        data: sortedQuestions.slice(0, limit)
+      };
+    } catch (error) {
+      console.error('❌ Get similar questions error:', error);
+      return { success: false, data: [] };
+    }
+  }
+
   // Post listesi getir (public feed)
   async getPosts(page = 1, limit = 10) {
     try {
@@ -100,7 +221,7 @@ class PostsService {
         return { success: false, error: 'Kullanıcı bilgileri bulunamadı' };
       }
       
-      // Görsel dosyasını ekle (backend image field'ı ile bekliyor)
+      // Görsel dosyasını ekle (backend sadece "image" alanını bekliyor)
       if (imageFile) {
         // Görsel dosyasını doğru formatta ekle
         const imageData = {
@@ -109,8 +230,11 @@ class PostsService {
           name: imageFile.name || 'image.jpg',
         };
         
+        // ✅ DOĞRU: Sadece "image" alanını kullan
         formData.append('image', imageData);
-        console.log('📸 Image appended to FormData:', imageData);
+        console.log('✅ image alanı eklendi:', imageData);
+        
+        console.log('📸 Image appended to FormData with correct field name');
       } else {
         console.log('⚠️ No image provided');
         return { success: false, error: 'Görsel zorunludur' };
@@ -139,13 +263,34 @@ class PostsService {
       console.log('🔐 Token type:', typeof token);
       console.log('🔐 Token length:', token ? token.length : 0);
       
+      // ✅ Content-Type header'ı GEREKSİZ - FormData otomatik ayarlar
       const response = await api.post(
         API_ENDPOINTS.POSTS.CREATE,
         formData,
-        token,
-        { 'Content-Type': 'multipart/form-data' }
+        token
       );
       console.log('📡 Create post response:', response);
+      
+      // 🔧 GÖRSEL YÜKLEME: Hata analizi
+      if (!response.success) {
+        console.log('❌ Görsel yükleme hatası:');
+        console.log('  - Error message:', response.error);
+        console.log('  - Status code:', response.status);
+        console.log('  - Full response:', response);
+        
+        // "Unexpected field" hatası için özel analiz
+        if (response.error && response.error.includes('Unexpected field')) {
+          console.log('🔧 "Unexpected field" hatası tespit edildi!');
+          console.log('🔧 Backend farklı alan adı bekliyor olabilir.');
+          console.log('🔧 Önerilen çözümler:');
+          console.log('  1. Backend\'de Multer konfigürasyonunu kontrol et');
+          console.log('  2. Farklı alan adları dene (postImage, file, media)');
+          console.log('  3. Backend loglarını kontrol et');
+        }
+      } else {
+        console.log('✅ Görsel yükleme başarılı!');
+      }
+      
       return response;
     } catch (error) {
       console.error('❌ Create post error:', error);
@@ -439,19 +584,18 @@ class PostsService {
       formData.append('location', postData.location || '');
       formData.append('privacy', postData.privacy || 'public');
       
-      // Medya dosyalarını ekle
+      // Medya dosyalarını ekle (backend sadece "image" alanını bekliyor)
       mediaFiles.forEach((file, index) => {
-        formData.append(`media[${index}]`, {
+        formData.append('image', {
           uri: file.uri,
           type: file.type,
           name: file.name,
         });
       });
 
-      // Custom headers for multipart/form-data
+      // ✅ Sadece Authorization header'ı gerekli (FormData otomatik Content-Type ayarlar)
       const headers = {
         'Authorization': `Bearer ${token}`,
-        'Content-Type': 'multipart/form-data',
       };
 
       const response = await api.post(
@@ -465,6 +609,103 @@ class PostsService {
     } catch (error) {
       console.error('Share post error:', error);
       return { success: false, error: 'Post paylaşılırken bir hata oluştu.' };
+    }
+  }
+
+  // 🔧 GÖRSEL YÜKLEME TEST: Backend'in desteklediği alan adlarını test et
+  async testBackendConfiguration() {
+    try {
+      console.log('🔧 Görsel yükleme test başlatılıyor...');
+      
+      const token = await authService.getToken();
+      if (!token) {
+        console.log('❌ Test için token gerekli');
+        return { success: false, error: 'Token gerekli' };
+      }
+
+      // Test 1: Backend bağlantısı
+      console.log('🔧 Test 1: Backend bağlantısı kontrol ediliyor...');
+      const healthCheck = await api.get('/health', token);
+      console.log('🔧 Health check response:', healthCheck);
+
+      // Test 2: Posts endpoint
+      console.log('🔧 Test 2: Posts endpoint kontrol ediliyor...');
+      const postsTest = await api.get('/posts?limit=1', token);
+      console.log('🔧 Posts test response:', postsTest);
+
+      // Test 3: Farklı alan adları ile görsel yükleme testi
+      console.log('🔧 Test 3: Görsel alan adları test ediliyor...');
+      
+      const testResults = {};
+      
+             // Test alan adları (backend loglarından gördüğümüz kadarıyla 'avatar' da var)
+       const fieldNames = ['avatar', 'image', 'postImage', 'file', 'media', 'photo', 'attachment'];
+      
+      for (const fieldName of fieldNames) {
+        try {
+          console.log(`🔧 ${fieldName} alanı test ediliyor...`);
+          
+          const testFormData = new FormData();
+          testFormData.append('content', 'Test post');
+          testFormData.append('postType', 'soru');
+          testFormData.append(fieldName, {
+            uri: 'file://test.jpg',
+            type: 'image/jpeg',
+            name: 'test.jpg',
+          });
+          
+          const fieldTest = await api.post(
+            '/posts',
+            testFormData,
+            token,
+            { 'Content-Type': 'multipart/form-data' }
+          );
+          
+          testResults[fieldName] = {
+            success: fieldTest.success,
+            error: fieldTest.error,
+            hasUnexpectedField: fieldTest.error && fieldTest.error.includes('Unexpected field')
+          };
+          
+          console.log(`🔧 ${fieldName} test sonucu:`, testResults[fieldName]);
+          
+        } catch (error) {
+          testResults[fieldName] = {
+            success: false,
+            error: error.message,
+            hasUnexpectedField: error.message.includes('Unexpected field')
+          };
+          console.log(`🔧 ${fieldName} test hatası:`, error.message);
+        }
+      }
+
+      // Sonuçları analiz et
+      const workingFields = Object.keys(testResults).filter(field => 
+        testResults[field].success && !testResults[field].hasUnexpectedField
+      );
+      
+      const unexpectedFieldErrors = Object.keys(testResults).filter(field => 
+        testResults[field].hasUnexpectedField
+      );
+
+      console.log('🔧 Test sonuçları:');
+      console.log('  - Çalışan alan adları:', workingFields);
+      console.log('  - "Unexpected field" hatası veren alanlar:', unexpectedFieldErrors);
+      console.log('  - Tüm test sonuçları:', testResults);
+
+      return {
+        success: true,
+        data: {
+          healthCheck,
+          postsTest,
+          fieldTests: testResults,
+          workingFields,
+          unexpectedFieldErrors
+        }
+      };
+    } catch (error) {
+      console.error('🔧 Görsel yükleme test hatası:', error);
+      return { success: false, error: 'Test sırasında hata oluştu' };
     }
   }
 }

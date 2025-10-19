@@ -34,7 +34,7 @@ const StatItem = ({ number, label, icon }) => (
 );
 
 export default function UserProfileScreen({ route, navigation }) {
-  const { userId, username } = route.params;
+  const { userId, username, avatar: routeAvatar } = route.params;
   const { user: currentUser, updateFollowingList } = useAuth();
   
   const [userProfile, setUserProfile] = useState(null);
@@ -243,14 +243,15 @@ export default function UserProfileScreen({ route, navigation }) {
           {/* Profile Picture */}
           <View style={styles.profilePictureContainer}>
             {(() => {
-              // Backend'den gelen avatar URL'sini kullan
-              const avatarUrl = userProfile.avatar;
+              // Önce route'dan gelen avatar'ı, sonra backend'den gelen avatar'ı kullan
+              const avatarUrl = routeAvatar || userProfile?.avatar;
               
               console.log('🎨 Rendering avatar with:', {
-                avatar: userProfile.avatar,
+                routeAvatar: routeAvatar,
+                backendAvatar: userProfile?.avatar,
                 finalAvatarUrl: avatarUrl,
                 hasAvatar: !!avatarUrl,
-                userProfileKeys: Object.keys(userProfile)
+                userProfileKeys: userProfile ? Object.keys(userProfile) : []
               });
               
               return avatarUrl ? (

@@ -56,10 +56,250 @@ export default function PostDetailScreen({ route, navigation }) {
 
       // Yorumları getir
       const commentsResult = await commentsService.getComments(postId);
+      let commentsData = [];
+      
       if (commentsResult.success) {
-        const commentsData = commentsResult.data?.data?.comments || commentsResult.data?.comments || [];
-        setComments(commentsData);
+        commentsData = commentsResult.data?.data?.comments || commentsResult.data?.comments || [];
       }
+      
+      // Sadece gerçek yorumları kullan
+      console.log('💬 Yorumlar yükleniyor...');
+      
+             // Post ID'sine göre farklı mock yorumlar (Zengin tartışma ortamı)
+       const getMockCommentsByPostId = (postId) => {
+         if (postId.includes('mock_physics')) {
+           return [
+             {
+               _id: 'mock_user_1',
+               text: 'Bu fizik sorusu gerçekten zor! Sürtünme katsayısı 0.2 verilmiş, mekanik enerji korunumu mu kullanmalıyız?',
+               userId: {
+                 _id: 'user_1',
+                 name: 'Ahmet Yılmaz',
+                 avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150'
+               },
+               createdAt: new Date(Date.now() - 45 * 60 * 1000).toISOString()
+             },
+             {
+               _id: 'mock_ai_1',
+               text: 'Bu fizik sorusu için mekanik enerji korunumu prensibini kullanabilirsin. Sürtünme katsayısı 0.2 olduğuna göre, enerji kaybı hesaba katılmalı. Formül: E = mgh + ½mv² - μmgd. Adım adım çözüm için sürtünme kuvvetini hesaplayıp, net kuvveti bulmalısın.',
+               userId: {
+                 _id: 'ai_user_1',
+                 name: 'GeminiHoca',
+                 avatar: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=150'
+               },
+               createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+               isAIResponse: true
+             },
+             {
+               _id: 'mock_user_2',
+               text: '@GeminiHoca Bu formülü nasıl uygulayacağım? Detaylı açıklayabilir misin?',
+               userId: {
+                 _id: 'user_2',
+                 name: 'Zeynep Kaya',
+                 avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=150'
+               },
+               createdAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
+               hasAITag: true
+             },
+             {
+               _id: 'mock_user_3',
+               text: 'Ben de bu soruyu çözmeye çalışıyordum! Sürtünme kuvveti f = μN = 0.2 × 2 × 9.8 = 3.92 N oluyor. Net kuvvet F = mg - f = 19.6 - 3.92 = 15.68 N. İvme a = F/m = 15.68/2 = 7.84 m/s².',
+               userId: {
+                 _id: 'user_3',
+                 name: 'Mehmet Demir',
+                 avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150'
+               },
+               createdAt: new Date(Date.now() - 20 * 60 * 1000).toISOString()
+             },
+             {
+               _id: 'mock_ai_2',
+               text: 'Harika bir çözüm! Zeynep\'in yaklaşımı doğru. Enerji korunumu da kullanılabilir ama kuvvet yaklaşımı daha direkt. Önemli nokta: Sürtünme kuvveti her zaman hareket yönüne ters yöndedir.',
+               userId: {
+                 _id: 'ai_user_1',
+                 name: 'GeminiHoca',
+                 avatar: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=150'
+               },
+               createdAt: new Date(Date.now() - 15 * 60 * 1000).toISOString(),
+               isAIResponse: true
+             },
+             {
+               _id: 'mock_user_4',
+               text: 'Çok güzel çözüm! Ben de aynı sonucu buldum. Enerji korunumu yaklaşımı da kullanılabilir ama kuvvet yaklaşımı daha pratik.',
+               userId: {
+                 _id: 'user_4',
+                 name: 'Elif Özkan',
+                 avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150'
+               },
+               createdAt: new Date(Date.now() - 10 * 60 * 1000).toISOString()
+             }
+           ];
+         } else if (postId.includes('mock_chemistry')) {
+           return [
+             {
+               _id: 'mock_user_1',
+               text: 'Bu organik bileşik analizi çok karmaşık. C₆H₁₂O₂ formülü ne olabilir? Ester mi, karboksilik asit mi?',
+               userId: {
+                 _id: 'user_1',
+                 name: 'KimyaÖğretmeni',
+                 avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150'
+               },
+               createdAt: new Date(Date.now() - 40 * 60 * 1000).toISOString()
+             },
+             {
+               _id: 'mock_ai_1',
+               text: 'Bu organik bileşik analizi için önce fonksiyonel grupları tespit etmelisin. C₆H₁₂O₂ formülü ester veya karboksilik asit olabilir. IUPAC adlandırması için ana zinciri bulup, fonksiyonel grubu belirtmelisin.',
+               userId: {
+                 _id: 'ai_user_1',
+                 name: 'GeminiHoca',
+                 avatar: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=150'
+               },
+               createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+               isAIResponse: true
+             },
+             {
+               _id: 'mock_user_2',
+               text: '@GeminiHoca Bu bileşik muhtemelen bir ester. Ana zincir 6 karbonlu olduğuna göre hekzil esteri olabilir.',
+               userId: {
+                 _id: 'user_2',
+                 name: 'Ahmet Yılmaz',
+                 avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150'
+               },
+               createdAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+               hasAITag: true
+             },
+             {
+               _id: 'mock_user_3',
+               text: 'Evet, ester olabilir. Ama karboksilik asit de olabilir. Fonksiyonel grup testleri yapmak gerekir.',
+               userId: {
+                 _id: 'user_3',
+                 name: 'Zeynep Kaya',
+                 avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=150'
+               },
+               createdAt: new Date(Date.now() - 15 * 60 * 1000).toISOString()
+             }
+           ];
+         } else if (postId.includes('mock_biology')) {
+           return [
+             {
+               _id: 'mock_user_1',
+               text: 'Bu görselde hangi hücre bölünmesi aşaması gösteriliyor? Mitoz mu mayoz mu?',
+               userId: {
+                 _id: 'user_1',
+                 name: 'BiyolojiSever',
+                 avatar: 'https://images.unsplash.com/photo-1500648767791-00dcc994a43e?w=150'
+               },
+               createdAt: new Date(Date.now() - 35 * 60 * 1000).toISOString()
+             },
+             {
+               _id: 'mock_ai_1',
+               text: 'Bu görselde mitoz bölünmenin metafaz aşaması gösteriliyor. Kromozomlar ekvatoral düzlemde sıralanmış durumda. Mitoz ve mayoz arasındaki temel fark: mitozda 2n→2n, mayozda 2n→n kromozom sayısı değişimi olur.',
+               userId: {
+                 _id: 'ai_user_1',
+                 name: 'GeminiHoca',
+                 avatar: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=150'
+               },
+               createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+               isAIResponse: true
+             },
+             {
+               _id: 'mock_user_2',
+               text: 'Kromozomların bu şekilde sıralanması çok net görünüyor. Hangi boyama tekniği kullanılmış?',
+               userId: {
+                 _id: 'user_2',
+                 name: 'Mehmet Demir',
+                 avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150'
+               },
+               createdAt: new Date(Date.now() - 25 * 60 * 1000).toISOString()
+             },
+             {
+               _id: 'mock_user_3',
+               text: '@GeminiHoca Mitoz ve mayoz arasındaki farkları daha detaylı açıklayabilir misin?',
+               userId: {
+                 _id: 'user_3',
+                 name: 'Elif Özkan',
+                 avatar: 'https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=150'
+               },
+               createdAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+               hasAITag: true
+             }
+           ];
+         } else if (postId.includes('mock_math')) {
+           return [
+             {
+               _id: 'mock_user_1',
+               text: 'Bu integral gerçekten karmaşık! Trigonometrik özdeşlikler mi kullanmalıyız?',
+               userId: {
+                 _id: 'user_1',
+                 name: 'MatematikTutkunu',
+                 avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150'
+               },
+               createdAt: new Date(Date.now() - 40 * 60 * 1000).toISOString()
+             },
+             {
+               _id: 'mock_ai_1',
+               text: 'Bu integral için trigonometrik özdeşlikler kullanmalısın. sin²x = (1-cos2x)/2 ve cos³x = cosx(1-sin²x) dönüşümlerini uygulayarak çözebilirsin. Adım adım çözüm için u = cosx dönüşümü de kullanılabilir.',
+               userId: {
+                 _id: 'ai_user_1',
+                 name: 'GeminiHoca',
+                 avatar: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=150'
+               },
+               createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
+               isAIResponse: true
+             },
+             {
+               _id: 'mock_user_2',
+               text: '@GeminiHoca Bu integral gerçekten karmaşık. Kısmi integral yöntemi de kullanılabilir mi?',
+               userId: {
+                 _id: 'user_2',
+                 name: 'Zeynep Kaya',
+                 avatar: 'https://images.unsplash.com/photo-1494790108755-2616b612b786?w=150'
+               },
+               createdAt: new Date(Date.now() - 20 * 60 * 1000).toISOString(),
+               hasAITag: true
+             },
+             {
+               _id: 'mock_user_3',
+               text: 'Evet, kısmi integral de kullanılabilir ama trigonometrik özdeşlikler daha pratik olacaktır.',
+               userId: {
+                 _id: 'user_3',
+                 name: 'Ahmet Yılmaz',
+                 avatar: 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150'
+               },
+               createdAt: new Date(Date.now() - 15 * 60 * 1000).toISOString()
+             }
+           ];
+         } else {
+           // Varsayılan mock yorumlar
+           return [
+             {
+               _id: 'mock_user_1',
+               text: 'Bu soru gerçekten ilginç! Nasıl çözebiliriz?',
+               userId: {
+                 _id: 'user_1',
+                 name: 'Öğrenci',
+                 avatar: 'https://images.unsplash.com/photo-1472099645785-5658abf4ff4e?w=150'
+               },
+               createdAt: new Date(Date.now() - 30 * 60 * 1000).toISOString()
+             },
+             {
+               _id: 'mock_ai_1',
+               text: 'Bu soru için detaylı analiz yapmak gerekiyor. Adım adım çözüm yaklaşımı en iyisi olacaktır.',
+               userId: {
+                 _id: 'ai_user_1',
+                 name: 'GeminiHoca',
+                 avatar: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=150'
+               },
+               createdAt: new Date(Date.now() - 25 * 60 * 1000).toISOString(),
+               isAIResponse: true
+             }
+           ];
+         }
+       };
+      
+      // Sadece gerçek yorumları kullan, mock veri yok
+      setComments(commentsData);
+      
+      console.log('💬 Gerçek yorumlar yüklendi:', commentsData.length);
     } catch (error) {
       console.error('Post detayları yüklenirken hata:', error);
       Alert.alert('Hata', 'Post detayları yüklenirken bir hata oluştu.');
@@ -83,6 +323,7 @@ export default function PostDetailScreen({ route, navigation }) {
   const handleComment = async () => {
     if (!commentText.trim()) return;
 
+    // Tüm postlar için normal API çağrısı yap
     try {
       setSendingComment(true);
       const result = await commentsService.createComment(postId, commentText.trim());
@@ -293,21 +534,74 @@ export default function PostDetailScreen({ route, navigation }) {
         {/* Comments */}
         <View style={styles.commentsContainer}>
           <Text style={styles.commentsTitle}>Yorumlar ({comments.length})</Text>
-          {comments.map((comment, index) => (
-            <View key={comment._id || index} style={styles.commentItem}>
-              <Text style={styles.commentUsername}>{comment.userId?.name || 'Kullanıcı'}</Text>
-              <Text style={styles.commentText}>{comment.text}</Text>
-              <Text style={styles.commentDate}>{formatDate(comment.createdAt)}</Text>
-            </View>
-          ))}
+          {comments.map((comment, index) => {
+            // AI yorumu mu kontrol et
+            const isAIComment = comment.userId?.name === 'GeminiHoca' || 
+                               comment.userId?.name === 'AI Assistant' ||
+                               comment.text?.includes('@GeminiHoca') ||
+                               comment.isAIResponse;
+            
+            return (
+              <View key={comment._id || index} style={[
+                styles.commentItem,
+                isAIComment && styles.aiCommentItem
+              ]}>
+                {/* AI Badge */}
+                {isAIComment && (
+                  <View style={styles.aiCommentHeader}>
+                    <View style={styles.aiAvatar}>
+                      <Ionicons name="sparkles" size={16} color="#fff" />
+                    </View>
+                    <View style={styles.aiUserInfo}>
+                      <Text style={styles.aiUsername}>GeminiHoca</Text>
+                      <View style={styles.aiBadgeSmall}>
+                        <Ionicons name="robot" size={12} color="#8b5cf6" />
+                        <Text style={styles.aiBadgeText}>AI</Text>
+                      </View>
+                    </View>
+                    <Text style={styles.commentDate}>{formatDate(comment.createdAt)}</Text>
+                  </View>
+                )}
+                
+                {/* Normal User Comment */}
+                {!isAIComment && (
+                  <View style={styles.userCommentHeader}>
+                    <Text style={styles.commentUsername}>{comment.userId?.name || 'Kullanıcı'}</Text>
+                    <Text style={styles.commentDate}>{formatDate(comment.createdAt)}</Text>
+                  </View>
+                )}
+                
+                <Text style={[
+                  styles.commentText,
+                  isAIComment && styles.aiCommentText
+                ]}>
+                  {comment.text}
+                </Text>
+                
+                {/* AI Response Status */}
+                {comment.text?.includes('@GeminiHoca') && !isAIComment && (
+                  <View style={styles.aiResponseStatus}>
+                    <Ionicons name="sparkles" size={14} color="#8b5cf6" />
+                    <Text style={styles.aiResponseStatusText}>AI Analizi Bekleniyor</Text>
+                  </View>
+                )}
+              </View>
+            );
+          })}
         </View>
       </ScrollView>
+
+      {/* AI Suggestion Bar */}
+      <View style={styles.aiSuggestionBar}>
+        <Ionicons name="bulb-outline" size={16} color="#8b5cf6" />
+        <Text style={styles.aiSuggestionText}>AI'dan yardım için: @GeminiHoca yazın</Text>
+      </View>
 
       {/* Comment Input */}
       <View style={styles.commentInputContainer}>
         <TextInput
           style={styles.commentInput}
-          placeholder="Yorum ekle..."
+          placeholder="Yorum yaz... (@GeminiHoca ile AI'dan yardım al)"
           value={commentText}
           onChangeText={setCommentText}
           multiline
@@ -480,6 +774,91 @@ const styles = StyleSheet.create({
   commentDate: {
     fontSize: 12,
     color: '#9ca3af',
+  },
+  // 🎭 AI Comment Styles
+  aiCommentItem: {
+    backgroundColor: '#f8f7ff',
+    borderRadius: 12,
+    padding: 12,
+    borderLeftWidth: 3,
+    borderLeftColor: '#8b5cf6',
+    marginBottom: 16,
+  },
+  aiCommentHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  aiAvatar: {
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: '#8b5cf6',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 8,
+  },
+  aiUserInfo: {
+    flex: 1,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  aiUsername: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#8b5cf6',
+  },
+  aiBadgeSmall: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e0e7ff',
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+    borderRadius: 8,
+    gap: 2,
+  },
+  aiCommentText: {
+    fontSize: 14,
+    color: '#374151',
+    lineHeight: 20,
+    fontStyle: 'italic',
+  },
+  userCommentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 4,
+  },
+  aiResponseStatus: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#e0e7ff',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 8,
+    marginTop: 6,
+    gap: 4,
+  },
+  aiResponseStatusText: {
+    fontSize: 12,
+    color: '#8b5cf6',
+    fontWeight: '500',
+  },
+  aiSuggestionBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: '#f8f7ff',
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: '#e5e7eb',
+    gap: 6,
+  },
+  aiSuggestionText: {
+    fontSize: 12,
+    color: '#8b5cf6',
+    fontWeight: '500',
   },
   commentInputContainer: {
     flexDirection: 'row',

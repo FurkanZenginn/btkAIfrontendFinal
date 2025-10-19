@@ -158,6 +158,7 @@ class MessagesService {
       const formData = new FormData();
       formData.append('conversation_id', conversationId);
       formData.append('type', messageType);
+      // ✅ BACKEND KONFIGÜRASYONUNA GÖRE: Sadece 'media' alanı kullan
       formData.append('media', {
         uri: mediaFile.uri,
         type: mediaFile.type,

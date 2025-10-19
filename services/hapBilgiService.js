@@ -1,7 +1,7 @@
 import api from './api';
 import authService from './authService';
 
-const API_BASE = 'http://10.0.2.2:5000/api';
+const API_BASE = 'http://10.0.2.2:3000/api';
 
 class HapBilgiService {
   // Hap bilgi oluştur (post'tan)
@@ -69,10 +69,76 @@ class HapBilgiService {
       // AsyncStorage'a kaydet
       await this.saveLocalHapBilgi(hapBilgi);
       
-      return { success: true, data: hapBilgi, message: 'Hap Bilgi bellekte oluşturuldu' };
+      // Backend'e de kaydet (yeni!)
+      try {
+        console.log('🔄 Hap Bilgi backend\'e kaydediliyor...');
+        const backendResult = await this.saveHapBilgiToBackend(hapBilgi);
+        console.log('📤 Backend kayıt sonucu:', backendResult);
+        
+        if (backendResult.success) {
+          console.log('✅ Hap Bilgi hem yerel hem backend\'e kaydedildi');
+          // Backend'den dönen ID'yi kullan
+          hapBilgi._id = backendResult.data._id || hapBilgi._id;
+          hapBilgi.backendSaved = true;
+        } else {
+          console.log('⚠️ Backend kayıt başarısız, sadece yerel kayıt');
+          hapBilgi.backendSaved = false;
+        }
+      } catch (error) {
+        console.error('❌ Backend kayıt hatası:', error);
+        hapBilgi.backendSaved = false;
+      }
+      
+      return { success: true, data: hapBilgi, message: 'Hap Bilgi oluşturuldu' };
     } catch (error) {
       console.error('Hap bilgi oluşturma hatası (soru):', error);
       return { success: false, error: error.message };
+    }
+  }
+
+  // Kullanıcıya özel Hap Bilgi getir
+  async getUserHapBilgiler(userId, limit = 10) {
+    try {
+      console.log('🔒 Kullanıcıya özel Hap Bilgi alınıyor... User ID:', userId);
+      
+      // Backend'den kullanıcıya özel veri getir
+      const token = await this.getToken();
+      if (!token) {
+        console.log('⚠️ Token bulunamadı, yerel veriler kullanılıyor');
+        return await this.getRecommendedHapBilgiler(limit);
+      }
+      
+      // Backend'de yeni endpoint'i kullan - timeout ekle
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 5000); // 5 saniye timeout
+      
+      const response = await fetch(`${API_BASE}/hap-bilgi/user/my-hap-bilgiler?limit=${limit}`, {
+        method: 'GET',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        signal: controller.signal
+      });
+      
+      clearTimeout(timeoutId);
+      
+      const result = await response.json();
+      console.log('📊 Backend Hap Bilgi response:', result);
+      
+      if (result.success && result.data) {
+        console.log('✅ Kullanıcıya özel Hap Bilgi yüklendi:', result.data.length, 'adet');
+        return { success: true, data: result.data };
+      } else {
+        console.log('⚠️ Backend\'den veri alınamadı, yerel veriler kullanılıyor');
+        return await this.getRecommendedHapBilgiler(limit);
+      }
+    } catch (error) {
+      console.error('Kullanıcıya özel Hap Bilgi alma hatası:', error);
+      console.log('⚠️ Network hatası, yerel veriler kullanılıyor');
+      
+      // Network hatası durumunda direkt yerel verileri döndür
+      return await this.getRecommendedHapBilgiler(limit);
     }
   }
 
@@ -177,20 +243,7 @@ class HapBilgiService {
     }
   }
 
-  // Kullanıcının hap bilgileri
-  async getUserHapBilgiler(userId) {
-    try {
-      const response = await fetch(`${API_BASE}/hap-bilgi/user/${userId}`, {
-        headers: {
-          'Authorization': `Bearer ${await this.getToken()}`
-        }
-      });
-      return await response.json();
-    } catch (error) {
-      console.error('Kullanıcı hap bilgileri hatası:', error);
-      throw error;
-    }
-  }
+  // Bu fonksiyon duplicate idi ve kaldırıldı - yukarıda 80. satırda gerçek fonksiyon var
 
   // Hap bilgi detayı
   async getHapBilgiDetail(hapBilgiId) {
@@ -544,6 +597,41 @@ class HapBilgiService {
       console.log('💾 Yerel Hap Bilgi kaydedildi:', key);
     } catch (error) {
       console.error('💾 Yerel Hap Bilgi kaydetme hatası:', error);
+    }
+  }
+
+  // Yeni fonksiyon: Backend'e Hap Bilgi kaydet
+  async saveHapBilgiToBackend(hapBilgi) {
+    try {
+      const token = await this.getToken();
+      if (!token) {
+        return { success: false, error: 'Token bulunamadı' };
+      }
+
+      const response = await fetch(`${API_BASE}/hap-bilgi/create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`
+        },
+        body: JSON.stringify({
+          title: hapBilgi.title,
+          content: hapBilgi.content,
+          category: hapBilgi.category,
+          difficulty: hapBilgi.difficulty,
+          keywords: hapBilgi.keywords,
+          tags: hapBilgi.tags,
+          originalQuestion: hapBilgi.originalQuestion,
+          originalAIResponse: hapBilgi.originalAIResponse,
+          source: 'ai_generated' // Backend için kaynak belirtimi
+        })
+      });
+
+      const result = await response.json();
+      return result;
+    } catch (error) {
+      console.error('Backend Hap Bilgi kaydetme hatası:', error);
+      return { success: false, error: error.message };
     }
   }
 

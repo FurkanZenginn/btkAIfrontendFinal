@@ -50,17 +50,18 @@ const getAuthHeaders = (token) => {
   // Token'ın geçerli olduğundan emin ol
   if (!token || token === 'null' || token === 'undefined' || token === '') {
     console.log('❌ Invalid token detected:', token);
-    return getDefaultHeaders();
+    return { 'Accept': 'application/json' }; // Content-Type kaldırıldı
   }
   
   // JWT token formatını kontrol et
   if (typeof token !== 'string' || token.split('.').length !== 3) {
     console.log('❌ Invalid JWT token format:', token);
-    return getDefaultHeaders();
+    return { 'Accept': 'application/json' }; // Content-Type kaldırıldı
   }
   
   const headers = {
-    ...getDefaultHeaders(),
+    'Accept': 'application/json',
+    'Content-Type': 'application/json',
     'Authorization': `Bearer ${token}`,
   };
   
@@ -215,10 +216,17 @@ export const api = {
       body: data instanceof FormData ? data : JSON.stringify(data)
     };
     
-    // FormData için Content-Type'ı otomatik set etme (browser otomatik set eder)
-    // Custom headers varsa ekle
-    if (Object.keys(customHeaders).length > 0) {
-      options.headers = customHeaders;
+    // FormData değilse Content-Type: application/json ekle
+    if (!(data instanceof FormData)) {
+      options.headers = {
+        'Content-Type': 'application/json',
+        ...customHeaders
+      };
+    } else {
+      // FormData için custom headers varsa ekle
+      if (Object.keys(customHeaders).length > 0) {
+        options.headers = customHeaders;
+      }
     }
     
     return token 

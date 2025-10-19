@@ -98,9 +98,9 @@ class UserService {
           name: 'avatar.jpg'
         };
         
-        // Backend gereksinimi: field name 'avatar' olmalı
+        // ✅ BACKEND KONFIGÜRASYONUNA GÖRE: Sadece 'avatar' alanı kullan
         formData.append('avatar', avatarFile);
-        console.log('🔧 Avatar dosyası FormData\'ya eklendi (field: avatar):', profileData.avatar);
+        console.log('🔧 Avatar dosyası FormData\'ya eklendi (correct field name):', profileData.avatar);
         console.log('🔧 Avatar file object:', avatarFile);
 
         options = {

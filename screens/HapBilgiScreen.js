@@ -17,6 +17,7 @@ import { FONT_STYLES } from '../utils/fonts';
 import HapBilgiCard from '../components/HapBilgiCard';
 import SimilarQuestionsModal from '../components/SimilarQuestionsModal';
 import hapBilgiService from '../services/hapBilgiService';
+import authService from '../services/authService';
 
 export default function HapBilgiScreen({ navigation }) {
   const [hapBilgiler, setHapBilgiler] = useState([]);
@@ -31,17 +32,85 @@ export default function HapBilgiScreen({ navigation }) {
       setLoading(true);
       console.log('🔄 Hap Bilgi yükleniyor...');
       
-      const result = await hapBilgiService.getRecommendedHapBilgiler(20);
+      // Kullanıcı ID'sini al
+      const user = await authService.getUser();
+      const userId = user?._id;
+      console.log('🔒 Hap Bilgi - User ID:', userId);
       
-      console.log('📊 Hap bilgi result:', result);
+      if (!userId) {
+        console.log('⚠️ Kullanıcı ID bulunamadı, sadece genel veriler yükleniyor');
+        const result = await hapBilgiService.getRecommendedHapBilgiler(20);
+        
+        if (result && result.success) {
+          const hapBilgiData = result.data || [];
+          console.log('✅ Genel Hap Bilgi loaded:', hapBilgiData.length, 'items');
+          setHapBilgiler(hapBilgiData);
+        } else {
+          setHapBilgiler([]);
+        }
+        return;
+      }
       
-      if (result && result.success) {
-        const hapBilgiData = result.data || [];
-        console.log('✅ Hap Bilgi loaded:', hapBilgiData.length, 'items');
-        setHapBilgiler(hapBilgiData);
-      } else {
-        console.error('❌ Hap Bilgi loading failed:', result?.error || 'Unknown error');
-        setHapBilgiler([]);
+      // Kullanıcıya özel Hap Bilgi getir - timeout ile
+      try {
+        const timeoutPromise = new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Timeout')), 5000)
+        );
+        
+        const result = await Promise.race([
+          hapBilgiService.getUserHapBilgiler(userId, 20),
+          timeoutPromise
+        ]);
+        
+        console.log('📊 Kullanıcıya özel Hap Bilgi result:', result);
+        
+        if (result && result.success) {
+          // Backend'den gelen veri yapısını kontrol et
+          const hapBilgiData = result.data?.hapBilgiler || result.data || [];
+          console.log('✅ Kullanıcıya özel Hap Bilgi loaded:', hapBilgiData.length, 'items');
+          console.log('📊 DEBUG - Hap Bilgi Data:', hapBilgiData);
+          setHapBilgiler(hapBilgiData);
+        } else {
+          console.error('❌ Kullanıcıya özel Hap Bilgi loading failed:', result?.error || 'Unknown error');
+          
+          // Fallback: Genel verileri getir
+          console.log('⚠️ Kullanıcıya özel veri bulunamadı, genel veriler yükleniyor');
+          
+          // Debug: AsyncStorage'da ne var kontrol et
+          const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+          const allKeys = await AsyncStorage.getAllKeys();
+          const hapBilgiKeys = allKeys.filter(key => key.includes('hap_bilgi') || key.includes('local_hap'));
+          console.log('🔍 DEBUG - AsyncStorage\'da bulunan Hap Bilgi keyleri:', hapBilgiKeys);
+          
+          const fallbackResult = await hapBilgiService.getRecommendedHapBilgiler(20);
+          console.log('📊 DEBUG - getRecommendedHapBilgiler result:', fallbackResult);
+          
+          if (fallbackResult && fallbackResult.success) {
+            setHapBilgiler(fallbackResult.data || []);
+          } else {
+            setHapBilgiler([]);
+          }
+        }
+      } catch (error) {
+        console.error('❌ getUserHapBilgiler hatası:', error);
+        
+        // Timeout veya network hatası durumunda genel verileri getir
+        console.log('⚠️ Timeout/Network hatası, genel veriler yükleniyor');
+        
+        // Debug: AsyncStorage'da ne var kontrol et
+        const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+        const allKeys = await AsyncStorage.getAllKeys();
+        const hapBilgiKeys = allKeys.filter(key => key.includes('hap_bilgi') || key.includes('local_hap'));
+        console.log('🔍 DEBUG - AsyncStorage\'da bulunan Hap Bilgi keyleri:', hapBilgiKeys);
+        
+        const fallbackResult = await hapBilgiService.getRecommendedHapBilgiler(20);
+        console.log('📊 DEBUG - getRecommendedHapBilgiler result:', fallbackResult);
+        
+        if (fallbackResult && fallbackResult.success) {
+          setHapBilgiler(fallbackResult.data || []);
+        } else {
+          setHapBilgiler([]);
+        }
       }
     } catch (error) {
       console.error('❌ Hap Bilgi loading error:', error);
@@ -218,6 +287,8 @@ export default function HapBilgiScreen({ navigation }) {
         onClose={() => setShowSimilarQuestionsModal(false)}
         hapBilgiId={selectedHapBilgi?._id}
         hapBilgiTitle={selectedHapBilgi?.title}
+        hapBilgiContent={selectedHapBilgi?.content}
+        hapBilgiTags={selectedHapBilgi?.tags}
         navigation={navigation}
       />
     </SafeAreaView>

@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   View,
   Text,
@@ -8,6 +8,7 @@ import {
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { FONT_STYLES } from '../utils/fonts';
+import ImageModal from './ImageModal';
 
 const PostItem = ({ 
   username, 
@@ -29,7 +30,28 @@ const PostItem = ({
   onComment, 
   onBookmark,
   onUserPress
-}) => (
+}) => {
+  const [imageModalVisible, setImageModalVisible] = useState(false);
+
+  const handleImagePress = () => {
+    console.log('🖱️ Image pressed!');
+    console.log('🖱️ postImage:', postImage);
+    console.log('🖱️ imageModalVisible before:', imageModalVisible);
+    
+    if (postImage) {
+      console.log('🖱️ Setting modal to true');
+      setImageModalVisible(true);
+    } else {
+      console.log('🖱️ No postImage available');
+    }
+  };
+
+  // Debug state changes
+  useEffect(() => {
+    console.log('🔄 imageModalVisible changed to:', imageModalVisible);
+  }, [imageModalVisible]);
+
+  return (
   <View style={styles.postContainer}>
     {/* Post Header */}
     <View style={styles.postHeader}>
@@ -68,19 +90,31 @@ const PostItem = ({
       </TouchableOpacity>
     </View>
 
-    {/* Post Image */}
-    {postImage && (
-      <View style={styles.imageContainer}>
-        <Image source={{ uri: postImage }} style={styles.postImage} />
-        {/* AI Post Badge - Görselin üstünde */}
-        {isFromAI && (
-          <View style={styles.aiBadgeOverlay}>
-            <Ionicons name="sparkles" size={16} color="#fff" />
-            <Text style={styles.aiBadgeTextOverlay}>AI Soru</Text>
-          </View>
-        )}
-      </View>
-    )}
+         {/* Post Image */}
+     {postImage && (
+       <View style={styles.imageContainer}>
+         <TouchableOpacity 
+           style={styles.imageTouchable} 
+           onPress={handleImagePress}
+           activeOpacity={0.9}
+         >
+           <Image source={{ uri: postImage }} style={styles.postImage} />
+         </TouchableOpacity>
+         
+         {/* AI Post Badge - Görselin üstünde */}
+         {isFromAI && (
+           <View style={styles.aiBadgeOverlay}>
+             <Ionicons name="sparkles" size={16} color="#fff" />
+             <Text style={styles.aiBadgeTextOverlay}>AI Soru</Text>
+           </View>
+         )}
+         
+         {/* Image Press Indicator */}
+         <View style={styles.imagePressIndicator}>
+           <Ionicons name="expand" size={20} color="rgba(255, 255, 255, 0.8)" />
+         </View>
+       </View>
+     )}
 
     {/* AI Post Badge - Görsel yoksa */}
     {isFromAI && !postImage && (
@@ -146,8 +180,17 @@ const PostItem = ({
         />
       </TouchableOpacity>
     </View>
+
+    {/* Image Modal */}
+    <ImageModal
+      visible={imageModalVisible}
+      imageUri={postImage}
+      username={username}
+      postType={postType}
+      onClose={() => setImageModalVisible(false)}
+    />
   </View>
-);
+  );
 
 const styles = StyleSheet.create({
   postContainer: {
@@ -224,13 +267,31 @@ const styles = StyleSheet.create({
   moreButton: {
     padding: 4,
   },
-  imageContainer: {
-    position: 'relative',
-  },
-  postImage: {
-    width: '100%',
-    height: 300,
-    resizeMode: 'cover',
+     imageContainer: {
+     position: 'relative',
+     // Debug: Tıklanabilir alanı görmek için
+     borderWidth: 2,
+     borderColor: 'red',
+   },
+   imageTouchable: {
+     width: '100%',
+     height: 300,
+   },
+   postImage: {
+     width: '100%',
+     height: 300,
+     resizeMode: 'cover',
+   },
+  imagePressIndicator: {
+    position: 'absolute',
+    top: 12,
+    right: 12,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    borderRadius: 20,
+    width: 40,
+    height: 40,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   aiBadgeOverlay: {
     position: 'absolute',

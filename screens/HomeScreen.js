@@ -20,6 +20,8 @@ import { useAuth } from '../contexts/AuthContext';
 import postsService from '../services/postsService';
 import commentsService from '../services/commentsService';
 import followService from '../services/followService';
+import authService from '../services/authService';
+
 import notificationService from '../services/notificationService';
 import { aiService } from '../services';
 import { COLORS, SPACING, BORDER_RADIUS, SHADOWS, FONT_STYLES, FONTS, FONT_WEIGHTS, FONT_SIZES } from '../utils';
@@ -193,6 +195,7 @@ export default function HomeScreen({ navigation }) {
   const [comments, setComments] = useState([]);
   const [isLoadingComments, setIsLoadingComments] = useState(false);
   const [replyingTo, setReplyingTo] = useState(null); // Yanıtlanan yorum
+  const [expandedReplies, setExpandedReplies] = useState(new Set()); // Hangi yorumların yanıtları açık
   
   // Bildirim sistemi
   const [notification, setNotification] = useState(null);
@@ -269,7 +272,13 @@ export default function HomeScreen({ navigation }) {
     console.log('🏠 HomeScreen mounted - calling loadPosts');
     loadPosts();
     loadUnreadNotificationCount();
+    
+    // Sadece kullanıcı giriş yaptığında ve followService mevcut olduğunda following list'i yükle
+    if (user && user._id && followService && typeof followService.getFollowingList === 'function') {
     loadUserFollowingList();
+    } else if (user && user._id) {
+      console.log('⚠️ followService not available, skipping following list load');
+    }
     
     // Sistem durumu kontrolü
     const checkSystemStatus = async () => {
@@ -486,6 +495,8 @@ export default function HomeScreen({ navigation }) {
 
         
         console.log('🔄 Transformed posts:', transformedPosts);
+        
+        // Backend'den gelen verileri doğrudan kullan
         setPosts(transformedPosts);
         setLastPostCount(transformedPosts.length);
         
@@ -504,13 +515,13 @@ export default function HomeScreen({ navigation }) {
           isArray: Array.isArray(result.data)
         });
 
-        // Backend'den geçerli veri gelmediyse boş array kullan
+        // Backend'den veri gelmediğinde boş array kullan
         setPosts([]);
         setLastPostCount(0);
         
         if (!result.success) {
-        console.error('❌ Load posts failed:', result.error);
-        setError(result.error || 'Postlar yüklenemedi');
+          console.error('❌ Load posts failed:', result.error);
+          setError(result.error || 'Postlar yüklenemedi');
         }
       }
     } catch (error) {
@@ -558,18 +569,33 @@ export default function HomeScreen({ navigation }) {
   // Kullanıcının following listesini yükle
   const loadUserFollowingList = async () => {
     try {
+      // Kullanıcı giriş yapmamışsa following list yüklemeye gerek yok
+      if (!user || !user._id) {
+        console.log('👥 User not logged in, skipping following list load');
+        return;
+      }
+
       console.log('👥 Loading user following list...');
+      
+      // followService'in mevcut olup olmadığını kontrol et
+      if (!followService || typeof followService.getFollowingList !== 'function') {
+        console.error('❌ followService.getFollowingList is not available');
+        return;
+      }
+      
       // Kullanıcının following listesini backend'den çek
-      const followingList = await followService.getFollowingList();
+      const followingList = await followService.getFollowingList(user._id);
       console.log('👥 Following list loaded:', followingList);
       
       // AuthContext'teki user'ı güncelle
-      if (user && followingList) {
+      if (user && followingList && followingList.success) {
         // Bu kısmı AuthContext'te yapmak daha iyi olur
         console.log('👥 Updated user following list');
       }
     } catch (error) {
       console.error('❌ Error loading following list:', error);
+      // Hata durumunda sessizce devam et, uygulamayı durdurma
+      // Bu hata uygulamayı durdurmamalı
     }
   };
 
@@ -577,6 +603,8 @@ export default function HomeScreen({ navigation }) {
   const handleNotificationPress = () => {
     navigation.navigate('NotificationsStack');
   };
+
+
 
   // Event Handlers
   const handleLike = async (postId) => {
@@ -701,16 +729,80 @@ export default function HomeScreen({ navigation }) {
           return;
         }
         
-        const transformedComments = comments.map(comment => ({
+        // Backend'den dönen tam veriyi logla
+        console.log('🔍 BACKEND RESPONSE DETAILED STRUCTURE:');
+        console.log('🔍 Total comments:', comments.length);
+        
+        comments.forEach((comment, index) => {
+          console.log(`🔍 Comment ${index}:`, {
+            id: comment._id,
+            text: comment.text?.substring(0, 50) + '...',
+            parentCommentId: comment.parentCommentId,
+            isFromGemini: comment.isFromGemini,
+            hasReplies: !!comment.replies,
+            repliesCount: comment.replies?.length || 0,
+            userId: comment.userId,
+            username: comment.userId?.name,
+            replies: comment.replies?.map(r => ({
+              id: r._id,
+              text: r.text?.substring(0, 30) + '...',
+              isFromGemini: r.isFromGemini,
+              parentCommentId: r.parentCommentId,
+              username: r.userId?.name
+            }))
+          });
+        });
+        
+        // Backend flat list mi döndürüyor yoksa nested mi?
+        const hasNestedReplies = comments.some(c => c.replies && c.replies.length > 0);
+        const hasParentIds = comments.some(c => c.parentCommentId);
+        
+        console.log('🔍 BACKEND STRUCTURE ANALYSIS:', {
+          hasNestedReplies,
+          hasParentIds,
+          totalComments: comments.length,
+          commentsWithReplies: comments.filter(c => c.replies && c.replies.length > 0).length,
+          commentsWithParentId: comments.filter(c => c.parentCommentId).length
+        });
+
+        const transformedComments = comments.map(comment => {
+          // AI yanıtı kontrolü - backend'den gelen isFromGemini field'ını kullan
+          const isAI = comment.isFromGemini || comment.isAI || comment.isAIResponse || comment.aiGenerated;
+          
+          // Backend'den gelen replies array'i varsa kullan
+          const replies = comment.replies || [];
+          
+          // Eğer bu bir AI yanıtıysa ve parentCommentId varsa, ana listeye ekleme!
+          if (isAI && comment.parentCommentId) {
+            return null; // Bu yorumu ana listeye ekleme
+          }
+          
+          return {
           id: comment._id || comment.id,
-          username: comment.userId?.name || comment.user?.name || comment.username || 'Kullanıcı',
-          userImage: comment.userId?.avatar || comment.user?.avatar || comment.userImage || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150',
+            username: isAI ? '🤖 GeminiHoca' : (comment.userId?.name || comment.user?.name || comment.username || 'Kullanıcı'),
+            userImage: isAI ? 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=150' : (comment.userId?.avatar || comment.user?.avatar || comment.userImage || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150'),
           text: comment.text || comment.content || '',
           timeAgo: comment.createdAt ? getTimeAgo(new Date(comment.createdAt)) : comment.timeAgo || '1h',
           likes: comment.likes?.length?.toString() || comment.likes || '0',
           isLiked: comment.isLiked || false,
           isOwnComment: comment.userId?._id === user?._id || comment.userId === user?._id,
-        }));
+            isAIResponse: isAI,
+            parentCommentId: comment.parentCommentId || null,
+            replyingTo: comment.replyingTo || null,
+            isReply: !!comment.parentCommentId,
+            hasAITag: comment.text?.includes('@GeminiHoca'),
+            replies: replies, // Backend'den gelen replies array'i
+          };
+        }).filter(Boolean); // null olan yorumları filtrele
+        
+        console.log('🔍 TRANSFORMED COMMENTS:', transformedComments.map(c => ({
+          id: c.id,
+          text: c.text.substring(0, 30) + '...',
+          parentCommentId: c.parentCommentId,
+          isAIResponse: c.isAIResponse,
+          username: c.username,
+          repliesCount: c.replies.length
+        })));
         
         setComments(transformedComments);
       } else {
@@ -935,7 +1027,7 @@ export default function HomeScreen({ navigation }) {
               isOwnComment: false,
               isAIResponse: true,
               isLoading: true,
-              parentCommentId: newComment.id,
+              parentCommentId: newComment.id, // Kullanıcının az önce gönderdiği yoruma yanıt ver
               replyingTo: user?.name || 'Kullanıcı',
             };
             
@@ -1009,40 +1101,78 @@ export default function HomeScreen({ navigation }) {
               console.log('📊 AI Analysis - Comment:', commentText.trim());
               console.log('📊 AI Analysis - Post Type:', postType);
               
-              const aiResult = await aiService.analyzeComment(
-                postContent, 
-                commentText.trim(), 
-                postType
-              );
+              // Yeni AI comment endpoint'ini kullan
+              const aiResult = await fetch('http://10.0.2.2:3000/api/ai/comment', {
+                method: 'POST',
+                headers: { 
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${await authService.getToken()}`
+                },
+                body: JSON.stringify({
+                  postId: selectedPostId,
+                  userComment: commentText.trim(),
+                  postContent: postContent,
+                  parentCommentId: replyingTo?.id || null
+                })
+              });
+
+              const aiData = await aiResult.json();
+              console.log('🤖 AI Comment Response:', aiData);
               
-              if (aiResult.success && aiResult.data?.response) {
-                // AI analiz yanıtını göster
+              if (aiData.success && aiData.data?.aiComment) {
+                // AI yanıtını yorum olarak göster
                 const aiComment = {
-                  id: `ai_${Date.now()}`,
-                  username: '🤖 GeminiHoca',
+                  id: aiData.data.aiComment._id || `ai_${Date.now()}`,
+                  username: '🤖 GeminiHoca', // Her zaman GeminiHoca olarak göster
                   userImage: 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=150',
-                  text: aiResult.data.response,
+                  text: aiData.data.aiComment.text,
                   timeAgo: 'Şimdi',
                   isLiked: false,
                   likes: 0,
                   isOwnComment: false,
                   isAIResponse: true,
-                  parentCommentId: newComment.id,
+                  parentCommentId: newComment.id, // Kullanıcının az önce gönderdiği yoruma yanıt ver
                   replyingTo: user?.name || 'Kullanıcı',
+                  isReply: true, // Bu bir yanıt olduğunu belirt
                 };
                 
+                // AI yanıtını backend'e kaydet
+                try {
+                  const aiCommentResult = await commentsService.createComment(
+                    selectedPostId, 
+                    aiComment.text,
+                    newComment.id, // parentCommentId olarak kullanıcının yorumunun ID'sini gönder
+                    true // isFromGemini: true
+                  );
+                  
+                  if (aiCommentResult.success) {
+                    // Backend'den gelen gerçek ID'yi kullan
+                    aiComment.id = aiCommentResult.data.comment?._id || aiCommentResult.data._id || aiComment.id;
+                    console.log('✅ AI yanıtı backend\'e kaydedildi:', aiComment.id);
+                  } else {
+                    console.log('⚠️ AI yanıtı backend\'e kaydedilemedi:', aiCommentResult.error);
+                  }
+                } catch (error) {
+                  console.error('❌ AI yanıtı backend\'e kaydedilirken hata:', error);
+                }
+                
                 // Loading comment'i kaldır, AI yanıtını ekle
-                setComments(prevComments => 
-                  prevComments
-                    .filter(comment => !comment.isLoading)
-                    .map(comment => comment)
-                );
-                setComments(prevComments => [aiComment, ...prevComments]);
+                setComments(prevComments => {
+                  const withoutLoading = prevComments.filter(comment => !comment.isLoading);
+                  return [aiComment, ...withoutLoading];
+                });
                 
                 console.log('✅ AI analizi tamamlandı ve gösterildi');
+                
+                // Yorumları yeniden yükle ki backend'den gelen verilerle senkronize olsun
+                console.log('🔄 Yorumları yeniden yüklemeye başlıyorum...');
+                setTimeout(() => {
+                  console.log('🔄 loadComments çağrılıyor...');
+                  loadComments(selectedPostId);
+                }, 1000);
                         } else {
             // AI analizi başarısız
-            const errorMessage = aiResult.error || 'Analiz yapılırken bir hata oluştu. Lütfen tekrar deneyin.';
+            const errorMessage = aiData.error || aiData.message || 'Analiz yapılırken bir hata oluştu. Lütfen tekrar deneyin.';
             const errorComment = {
               id: `ai_error_${Date.now()}`,
               username: '🤖 GeminiHoca',
@@ -1053,16 +1183,15 @@ export default function HomeScreen({ navigation }) {
               likes: 0,
               isOwnComment: false,
               isAIResponse: true,
-              parentCommentId: newComment.id,
+              parentCommentId: newComment.id, // Kullanıcının az önce gönderdiği yoruma yanıt ver
               replyingTo: user?.name || 'Kullanıcı',
+              isReply: true, // Bu bir yanıt olduğunu belirt
             };
                 
-                setComments(prevComments => 
-                  prevComments
-                    .filter(comment => !comment.isLoading)
-                    .map(comment => comment)
-                );
-                setComments(prevComments => [errorComment, ...prevComments]);
+                setComments(prevComments => {
+                  const withoutLoading = prevComments.filter(comment => !comment.isLoading);
+                  return [errorComment, ...withoutLoading];
+                });
               }
             } catch (error) {
               console.error('❌ AI analizi hatası:', error);
@@ -1134,6 +1263,7 @@ export default function HomeScreen({ navigation }) {
           <TouchableOpacity style={styles.headerButton}>
             <Ionicons name="camera-outline" size={24} color="#374151" />
           </TouchableOpacity>
+
         </View>
       </View>
 
@@ -1382,44 +1512,58 @@ export default function HomeScreen({ navigation }) {
             ) : comments.length === 0 ? (
               <Text style={styles.noCommentsText}>Henüz yorum yok. İlk yorumu sen yap!</Text>
             ) : (
-              comments.map((comment) => (
-                <View key={comment.id} style={[
+              // Yorumları hiyerarşik olarak göster
+              (() => {
+                // Ana yorumları bul (parentCommentId olmayan)
+                const mainComments = comments.filter(comment => !comment.parentCommentId);
+                
+                return mainComments.map((mainComment) => {
+                  // Backend'den gelen replies array'ini kullan
+                  let replies = [];
+                  
+                  if (mainComment.replies && Array.isArray(mainComment.replies)) {
+                    // Backend'den gelen replies array'ini kullan
+                    replies = mainComment.replies;
+                    console.log('🔍 Backend replies for comment:', mainComment.id, replies);
+                  } else {
+                    // Fallback: frontend'de filtrele
+                    replies = comments.filter(comment => comment.parentCommentId === mainComment.id);
+                    console.log('🔍 Frontend filtered replies for comment:', mainComment.id, replies);
+                  }
+                  
+                  return (
+                    <View key={mainComment.id}>
+                      {/* Ana yorum */}
+                      <View style={[
                   styles.commentItem,
-                  comment.parentCommentId && styles.replyCommentItem,
-                  comment.isAIResponse && styles.aiResponseCommentItem
+                        mainComment.isAIResponse && styles.aiResponseCommentItem
                 ]}>
                   <Image 
-                    source={{ uri: comment.userImage || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150' }} 
+                          source={{ uri: mainComment.userImage || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150' }} 
                     style={[
                       styles.commentUserImage,
-                      comment.isAIResponse && styles.aiResponseUserImage
+                            mainComment.isAIResponse && styles.aiResponseUserImage
                     ]} 
                   />
                   <View style={styles.commentContent}>
                     <View style={styles.commentHeader}>
                       <Text style={[
                         styles.commentUsername,
-                        comment.isAIResponse && styles.aiResponseUsername
+                              mainComment.isAIResponse && styles.aiResponseUsername
                       ]}>
-                        {comment.username || 'Kullanıcı'}
+                              {mainComment.username || 'Kullanıcı'}
                       </Text>
-                      <Text style={styles.commentTime}>{comment.timeAgo}</Text>
+                            <Text style={styles.commentTime}>{mainComment.timeAgo}</Text>
                     </View>
-                    {/* Yanıtlanan kullanıcı etiketi */}
-                    {comment.replyingTo && (
-                      <Text style={styles.replyToText}>
-                        Yanıtla: <Text style={styles.replyToUsername}>@{comment.replyingTo}</Text>
-                      </Text>
-                    )}
                     <Text style={[
                       styles.commentText,
-                      comment.isAIResponse && styles.aiResponseText
+                            mainComment.isAIResponse && styles.aiResponseText
                     ]}>
-                      {comment.text}
+                            {mainComment.text}
                     </Text>
                     
                     {/* AI Etiketleme Badge'i */}
-                    {comment.hasAITag && (
+                          {mainComment.hasAITag && (
                       <View style={styles.aiTagBadge}>
                         <Ionicons name="sparkles" size={12} color="#8b5cf6" />
                         <Text style={styles.aiTagText}>AI Analizi Bekleniyor</Text>
@@ -1429,26 +1573,26 @@ export default function HomeScreen({ navigation }) {
                     <View style={styles.commentActions}>
                       <TouchableOpacity 
                         style={styles.commentAction}
-                        onPress={() => handleCommentLike(comment.id)}
+                              onPress={() => handleCommentLike(mainComment.id)}
                       >
                         <Text style={[
                           styles.commentActionText, 
-                          comment.isLiked && styles.likedActionText
+                                mainComment.isLiked && styles.likedActionText
                         ]}>
-                          {comment.isLiked ? 'Beğenildi' : 'Beğen'}
+                                {mainComment.isLiked ? 'Beğenildi' : 'Beğen'}
                         </Text>
                       </TouchableOpacity>
                       <TouchableOpacity 
                         style={styles.commentAction}
-                        onPress={() => handleReplyToComment(comment)}
+                              onPress={() => handleReplyToComment(mainComment)}
                       >
                         <Text style={styles.commentActionText}>Yanıtla</Text>
                       </TouchableOpacity>
                       {/* Kendi yorumunda silme seçeneği */}
-                      {comment.isOwnComment && (
+                            {mainComment.isOwnComment && (
                         <TouchableOpacity 
                           style={styles.commentAction}
-                          onPress={() => handleDeleteComment(comment.id)}
+                                onPress={() => handleDeleteComment(mainComment.id)}
                         >
                           <Text style={[styles.commentActionText, styles.deleteActionText]}>Sil</Text>
                         </TouchableOpacity>
@@ -1456,7 +1600,114 @@ export default function HomeScreen({ navigation }) {
                     </View>
                   </View>
                 </View>
-              ))
+                      
+                      {/* Yanıtlar varsa göster */}
+                      {replies.length > 0 && (
+                        <View style={styles.repliesContainer}>
+                          {/* Yanıtlayanları görüntüle butonu */}
+                          <TouchableOpacity 
+                            style={styles.showRepliesButton}
+                            onPress={() => {
+                              // Yanıtları aç/kapat
+                              setExpandedReplies(prev => {
+                                const newSet = new Set(prev);
+                                if (newSet.has(mainComment.id)) {
+                                  newSet.delete(mainComment.id);
+                                } else {
+                                  newSet.add(mainComment.id);
+                                }
+                                return newSet;
+                              });
+                            }}
+                          >
+                            <View style={styles.replyLine} />
+                            <Text style={styles.showRepliesText}>
+                              {expandedReplies.has(mainComment.id) ? 'Yanıtları gizle' : `${replies.length} yanıt göster`}
+                            </Text>
+                          </TouchableOpacity>
+                          
+                          {/* Yanıtları göster (sadece açıksa) */}
+                          {expandedReplies.has(mainComment.id) && replies.map((reply) => {
+                            // Backend'den gelen yanıtları da doğru şekilde parse et
+                            const isAI = reply.isFromGemini || reply.isAI || reply.isAIResponse || reply.aiGenerated;
+                            const username = isAI ? '🤖 GeminiHoca' : (reply.username || 'Kullanıcı');
+                            const userImage = isAI ? 'https://images.unsplash.com/photo-1677442136019-21780ecad995?w=150' : (reply.userImage || 'https://images.unsplash.com/photo-1507003211169-0a1dd7228f2d?w=150');
+                            
+                            return (
+                              <View key={reply.id} style={[
+                                styles.commentItem,
+                                styles.replyCommentItem,
+                                isAI && styles.aiResponseCommentItem
+                              ]}>
+                                <Image 
+                                  source={{ uri: userImage }} 
+                                  style={[
+                                    styles.commentUserImage,
+                                    styles.replyUserImage,
+                                    isAI && styles.aiResponseUserImage
+                                  ]} 
+                                />
+                                <View style={styles.commentContent}>
+                                  <View style={styles.commentHeader}>
+                                    <Text style={[
+                                      styles.commentUsername,
+                                      isAI && styles.aiResponseUsername
+                                    ]}>
+                                      {username}
+                                    </Text>
+                                    <Text style={styles.commentTime}>{reply.timeAgo}</Text>
+                                  </View>
+                                  {/* Yanıtlanan kullanıcı etiketi */}
+                                  {reply.replyingTo && (
+                                    <Text style={styles.replyToText}>
+                                      Yanıtla: <Text style={styles.replyToUsername}>@{reply.replyingTo}</Text>
+                                    </Text>
+                                  )}
+                                  <Text style={[
+                                    styles.commentText,
+                                    isAI && styles.aiResponseText
+                                  ]}>
+                                    {reply.text}
+                                  </Text>
+                                  
+                                  <View style={styles.commentActions}>
+                                    <TouchableOpacity 
+                                      style={styles.commentAction}
+                                      onPress={() => handleCommentLike(reply.id)}
+                                  >
+                                    <Text style={[
+                                      styles.commentActionText, 
+                                      reply.isLiked && styles.likedActionText
+                                    ]}>
+                                      {reply.isLiked ? 'Beğenildi' : 'Beğen'}
+                                    </Text>
+                                  </TouchableOpacity>
+                                  <TouchableOpacity 
+                                    style={styles.commentAction}
+                                    onPress={() => handleReplyToComment(reply)}
+                                  >
+                                    <Text style={styles.commentActionText}>Yanıtla</Text>
+                                  </TouchableOpacity>
+                                  {/* Kendi yorumunda silme seçeneği */}
+                                  {reply.isOwnComment && (
+                                    <TouchableOpacity 
+                                      style={styles.commentAction}
+                                      onPress={() => handleDeleteComment(reply.id)}
+                                    >
+                                      <Text style={[styles.commentActionText, styles.deleteActionText]}>Sil</Text>
+                                    </TouchableOpacity>
+                                  )}
+                                </View>
+                                </View>
+                              </View>
+                            );
+                          })}
+                        </View>
+                      )}
+                    </View>
+                  );
+                });
+              })()
             )}
           </ScrollView>
 
@@ -2076,6 +2327,35 @@ const styles = StyleSheet.create({
     borderLeftWidth: 2,
     borderLeftColor: '#e5e7eb',
     paddingLeft: 10,
+  },
+  // Yanıt hiyerarşisi stilleri
+  repliesContainer: {
+    marginLeft: 20,
+    borderLeftWidth: 2,
+    borderLeftColor: '#e5e7eb',
+    paddingLeft: 10,
+  },
+  showRepliesButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    marginBottom: 8,
+  },
+  replyLine: {
+    width: 2,
+    height: 20,
+    backgroundColor: '#e5e7eb',
+    marginRight: 8,
+  },
+  showRepliesText: {
+    ...FONT_STYLES.captionMedium,
+    color: '#8b5cf6',
+  },
+  replyUserImage: {
+    width: 28,
+    height: 28,
+    borderRadius: 14,
   },
   replyToText: {
     fontSize: 12,

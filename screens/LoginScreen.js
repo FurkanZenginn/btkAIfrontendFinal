@@ -101,8 +101,8 @@ export default function LoginScreen({ navigation }) {
               <View style={styles.logoContainer}>
                 <Ionicons name="sparkles" size={32} color="#fff" />
               </View>
-              <Text style={styles.brandName}>Visually</Text>
-              <Text style={styles.tagline}>Görsel hikayelerinizi paylaşın</Text>
+              <Text style={styles.brandName}>EduShare</Text>
+              <Text style={styles.tagline}>Bilgiyi paylaş, öğrenmeyi büyüt</Text>
             </View>
 
             {/* Login Card */}

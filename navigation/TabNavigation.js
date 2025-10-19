@@ -11,7 +11,6 @@ import ChatScreen from '../screens/ChatScreen';
 import ToolsStack from './ToolsStack';
 import ProfileStack from './ProfileStack';
 
-
 const Tab = createBottomTabNavigator();
 
 export default function TabNavigation() {
@@ -105,18 +104,18 @@ export default function TabNavigation() {
           return {
             backgroundColor: '#ffffff',
             borderTopWidth: 0,
-                         height: Platform.OS === 'ios' ? 92 : 82,
-             paddingBottom: Platform.OS === 'ios' ? 16 : 12,
-             paddingTop: 12,
+            height: Platform.OS === 'ios' ? 92 : 82,
+            paddingBottom: Platform.OS === 'ios' ? 16 : 12,
+            paddingTop: 12,
             paddingHorizontal: 0,
             shadowColor: '#000000',
             shadowOffset: {
               width: 0,
               height: -6,
             },
-                         shadowOpacity: 0.08,
-             shadowRadius: 12,
-             elevation: 20,
+            shadowOpacity: 0.08,
+            shadowRadius: 12,
+            elevation: 20,
             borderTopLeftRadius: 24,
             borderTopRightRadius: 24,
           };
@@ -124,7 +123,7 @@ export default function TabNavigation() {
         tabBarItemStyle: {
           flex: 1,
           paddingHorizontal: 0,
-          maxWidth: '20%', // 5 tab için eşit genişlik (UserProfile gizli)
+          maxWidth: '20%', // 5 tab için eşit genişlik
         },
         tabBarLabel: ({ focused, color }) => {
           let label;
@@ -149,12 +148,11 @@ export default function TabNavigation() {
         headerShown: false,
       })}
     >
-             <Tab.Screen name="Home" component={HomeScreen} />
-       <Tab.Screen name="Search" component={SearchScreen} />
-       <Tab.Screen name="Chat" component={ChatScreen} />
-       <Tab.Screen name="Tools" component={ToolsStack} />
-       <Tab.Screen name="Profile" component={ProfileStack} />
-       
+      <Tab.Screen name="Home" component={HomeScreen} />
+      <Tab.Screen name="Search" component={SearchScreen} />
+      <Tab.Screen name="Chat" component={ChatScreen} />
+      <Tab.Screen name="Tools" component={ToolsStack} />
+      <Tab.Screen name="Profile" component={ProfileStack} />
     </Tab.Navigator>
   );
 }

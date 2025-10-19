@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import {
   View,
@@ -17,6 +18,7 @@ import { LinearGradient } from 'expo-linear-gradient';
 import { useNavigation } from '@react-navigation/native';
 import { postsService } from '../services';
 import userService from '../services/userService';
+import aiService from '../services/aiService';
 
 export default function SearchScreen() {
   const navigation = useNavigation();
@@ -31,6 +33,8 @@ export default function SearchScreen() {
   const [recentSearches, setRecentSearches] = useState([]);
   const [popularTags, setPopularTags] = useState([]);
   const [selectedTag, setSelectedTag] = useState(null);
+  const [similarContentResults, setSimilarContentResults] = useState([]);
+  const [isLoadingSimilar, setIsLoadingSimilar] = useState(false);
 
   // Search input ref
   const searchInputRef = useRef(null);
@@ -53,11 +57,24 @@ export default function SearchScreen() {
     try {
       const AsyncStorage = require('@react-native-async-storage/async-storage').default;
       const saved = await AsyncStorage.getItem('recent_searches');
+      let savedSearches = [];
+      
       if (saved) {
-        setRecentSearches(JSON.parse(saved));
+        savedSearches = JSON.parse(saved);
+        console.log('💾 Kaydedilmiş aramalar yüklendi:', savedSearches);
       }
+      
+      // Sadece gerçek aramaları kullan
+      setRecentSearches(savedSearches);
+      
+      console.log('🔍 Son aramalar yüklendi:', savedSearches);
+      
     } catch (error) {
-      console.error('Recent searches yükleme hatası:', error);
+      console.error('❌ Recent searches yükleme hatası:', error);
+      
+      // Hata durumunda boş array kullan
+      console.log('⚠️ Hata durumunda boş arama listesi kullanılıyor');
+      setRecentSearches([]);
     }
   };
 
@@ -73,24 +90,74 @@ export default function SearchScreen() {
         setPopularTags(tagNames);
         console.log('🏷️ Popüler etiketler yüklendi:', tagNames);
       } else {
-        console.log('⚠️ Popüler etiketler yüklenemedi, varsayılan etiketler kullanılıyor');
-        // Fallback etiketler
-        setPopularTags([
-          '#Matematik', '#Fizik', '#Kimya', '#Biyoloji', '#Tarih',
-          '#Coğrafya', '#Türkçe', '#İngilizce', '#YKS', '#LGS',
-          '#Kalkülüs', '#Geometri', '#Elektrik', '#OrganikKimya'
-        ]);
+        console.log('⚠️ Popüler etiketler yüklenemedi, boş liste kullanılıyor');
+        setPopularTags([]);
       }
     } catch (error) {
       console.error('❌ Popüler etiketler yükleme hatası:', error);
-      // Fallback etiketler
-      setPopularTags([
-        '#Matematik', '#Fizik', '#Kimya', '#Biyoloji', '#Tarih',
-        '#Coğrafya', '#Türkçe', '#İngilizce', '#YKS', '#LGS',
-        '#Kalkülüs', '#Geometri', '#Elektrik', '#OrganikKimya'
-      ]);
+      // Hata durumunda boş liste kullan
+      setPopularTags([]);
     }
   };
+
+  // Etiket bazlı benzer içerik bul
+  const findSimilarContentByTags = async (tags) => {
+    try {
+      setIsLoadingSimilar(true);
+      console.log('🔍 Etiket bazlı benzer içerik aranıyor:', tags);
+      
+      // 1. Backend'den gerçek içerikleri getir
+      const realContentResult = await postsService.getSimilarQuestionsByTags(tags, 10);
+      
+      if (realContentResult.success && realContentResult.data.length > 0) {
+        // 2. AI ile benzerlik analizi yap
+        const aiAnalysisResult = await aiService.analyzeSimilarity({
+          question: `Bu etiketlerle ilgili içerikler: ${tags.join(', ')}`,
+          tags: tags
+        });
+        
+        // 3. Gerçek içerikleri AI analizi ile birleştir
+        const contentWithSimilarity = realContentResult.data.map((content, index) => {
+          // AI'dan gelen benzerlik skorunu kullan (varsa)
+          let similarityScore = 85; // Varsayılan skor
+          
+          if (aiAnalysisResult.success && aiAnalysisResult.data?.aiResponse) {
+            try {
+              const aiResponse = aiAnalysisResult.data.aiResponse;
+              if (aiResponse.includes('%')) {
+                const scoreMatch = aiResponse.match(/(\d+)%/);
+                if (scoreMatch) {
+                  similarityScore = parseInt(scoreMatch[1]);
+                }
+              }
+            } catch (error) {
+              console.log('AI response parse hatası, varsayılan skor kullanılıyor');
+            }
+          }
+          
+          return {
+            _id: content._id,
+            title: content.content?.substring(0, 100) + '...' || 'İçerik bulunamadı',
+            similarityScore: similarityScore - (index * 5), // İndekse göre azalan skor
+            type: content.postType || 'post',
+            tags: content.topicTags || []
+          };
+        });
+        
+        setSimilarContentResults(contentWithSimilarity);
+      } else {
+        console.log('Gerçek içerik bulunamadı');
+        setSimilarContentResults([]);
+      }
+    } catch (error) {
+      console.error('Benzer içerik arama hatası:', error);
+      setSimilarContentResults([]);
+    } finally {
+      setIsLoadingSimilar(false);
+    }
+  };
+
+
 
   // Search yap
   const performSearch = async () => {
@@ -159,7 +226,8 @@ export default function SearchScreen() {
         const response = await postsService.searchPostsAdvanced(searchParams);
         
         if (response.success && response.data) {
-          const posts = response.data.posts || response.data || [];
+          // Nested response yapısını düzelt
+          const posts = response.data?.data?.posts || response.data?.posts || response.data || [];
           console.log('📝 Bulunan postlar:', posts.length);
           console.log('📝 Response data:', response.data);
           
@@ -183,7 +251,8 @@ export default function SearchScreen() {
         const response = await userService.searchUsers(query, 1, 20);
         
         if (response.success && response.data) {
-          const users = response.data.users || response.data || [];
+          // Nested response yapısını düzelt
+          const users = response.data?.data?.users || response.data?.users || response.data || [];
           console.log('👥 Bulunan kullanıcılar:', users.length);
           console.log('👥 Response data:', response.data);
           console.log('👥 Users array:', users);
@@ -210,7 +279,8 @@ export default function SearchScreen() {
         const response = await postsService.getPopularTags(50);
         
         if (response.success && response.data) {
-          const allTags = response.data.tags || [];
+          // Nested response yapısını düzelt
+          const allTags = response.data?.data?.tags || response.data?.tags || [];
           const searchTerm = query.toLowerCase().replace('#', '');
           const filteredTags = Array.isArray(allTags) ? allTags.filter(tag =>
             tag.name.toLowerCase().includes(searchTerm)
@@ -264,11 +334,29 @@ export default function SearchScreen() {
     }
   };
 
+  // Recent search'ten sil
+  const removeFromRecentSearches = async (queryToRemove) => {
+    try {
+      const AsyncStorage = require('@react-native-async-storage/async-storage').default;
+      const updated = recentSearches.filter(s => s !== queryToRemove);
+      setRecentSearches(updated);
+      await AsyncStorage.setItem('recent_searches', JSON.stringify(updated));
+      console.log('🗑️ Arama silindi:', queryToRemove);
+    } catch (error) {
+      console.error('❌ Arama silme hatası:', error);
+    }
+  };
+
   // Tag'a tıkla
   const handleTagPress = (tag) => {
     setSelectedTag(tag);
     setSearchQuery(tag);
     setSearchType('tags');
+    
+    // Etiket bazlı benzer içerik bul
+    const cleanTag = tag.replace('#', '');
+    findSimilarContentByTags([cleanTag]);
+    
     performSearch();
   };
 
@@ -280,7 +368,14 @@ export default function SearchScreen() {
 
   // Kullanıcıya tıkla
   const handleUserPress = (user) => {
-    navigation.navigate('UserProfile', { userId: user.id, username: user.username });
+    navigation.navigate('Profile', { 
+      screen: 'UserProfileScreen',
+      params: { 
+        userId: user.id, 
+        username: user.username,
+        avatar: user.avatar // Avatar URL'i de gönder
+      }
+    });
   };
 
   // Gönderiye tıkla
@@ -345,6 +440,28 @@ export default function SearchScreen() {
           {item.isFollowing ? 'Takip Ediliyor' : 'Takip Et'}
         </Text>
       </TouchableOpacity>
+    </TouchableOpacity>
+  );
+
+  const renderSimilarContentItem = ({ item }) => (
+    <TouchableOpacity 
+      style={styles.similarContentItem}
+      onPress={() => handlePostPress(item)}
+    >
+      <View style={styles.similarContentHeader}>
+        <View style={styles.similarityBadge}>
+          <Text style={styles.similarityText}>{item.similarityScore}%</Text>
+        </View>
+        <Text style={styles.similarContentType}>{item.type}</Text>
+      </View>
+      <Text style={styles.similarContentTitle}>{item.title}</Text>
+      {item.tags && item.tags.length > 0 && (
+        <View style={styles.similarContentTags}>
+          {item.tags.slice(0, 3).map((tag, index) => (
+            <Text key={index} style={styles.similarContentTag}>#{tag}</Text>
+          ))}
+        </View>
+      )}
     </TouchableOpacity>
   );
 
@@ -463,16 +580,23 @@ export default function SearchScreen() {
             {recentSearches.length > 0 && (
               <View style={styles.section}>
                 <Text style={styles.sectionTitle}>Son Aramalar</Text>
-                {recentSearches.map((search, index) => (
-                  <TouchableOpacity
-                    key={index}
-                    style={styles.recentSearchItem}
-                    onPress={() => handleRecentSearchPress(search)}
-                  >
-                    <Ionicons name="time" size={14} color="#6b7280" />
-                    <Text style={styles.recentSearchText}>{search}</Text>
-                  </TouchableOpacity>
-            ))}
+                                 {recentSearches.map((search, index) => (
+                   <View key={index} style={styles.recentSearchItem}>
+                     <TouchableOpacity
+                       style={styles.recentSearchContent}
+                       onPress={() => handleRecentSearchPress(search)}
+                     >
+                       <Ionicons name="time" size={14} color="#6b7280" />
+                       <Text style={styles.recentSearchText}>{search}</Text>
+                     </TouchableOpacity>
+                     <TouchableOpacity
+                       style={styles.recentSearchDeleteButton}
+                       onPress={() => removeFromRecentSearches(search)}
+                     >
+                       <Ionicons name="close" size={14} color="#9ca3af" />
+                     </TouchableOpacity>
+                   </View>
+             ))}
           </View>
             )}
 
@@ -490,6 +614,8 @@ export default function SearchScreen() {
                 </TouchableOpacity>
               ))}
             </View>
+            
+
           </View>
         </View>
         ) : (
@@ -541,10 +667,31 @@ export default function SearchScreen() {
                   </View>
                 )}
 
+                {/* Benzer İçerik */}
+                {similarContentResults.length > 0 && (
+                  <View style={styles.section}>
+                    <Text style={styles.sectionTitle}>Benzer İçerik</Text>
+                    {isLoadingSimilar ? (
+                      <View style={styles.loadingContainer}>
+                        <ActivityIndicator size="small" color="#8b5cf6" />
+                        <Text style={styles.loadingText}>Benzer içerik aranıyor...</Text>
+                      </View>
+                    ) : (
+                      <FlatList
+                        data={similarContentResults}
+                        renderItem={renderSimilarContentItem}
+                        keyExtractor={(item) => item._id}
+                        scrollEnabled={false}
+                      />
+                    )}
+                  </View>
+                )}
+
                 {/* Empty State */}
                 {searchResults.users.length === 0 && 
                  searchResults.posts.length === 0 && 
-                 searchResults.tags.length === 0 && (
+                 searchResults.tags.length === 0 && 
+                 similarContentResults.length === 0 && (
                   renderEmptyState()
                 )}
               </View>
@@ -654,16 +801,26 @@ const styles = StyleSheet.create({
     color: '#1f2937',
     marginBottom: 8,
   },
-  recentSearchItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 8,
-    paddingHorizontal: 10,
-    backgroundColor: '#f9fafb',
-    borderRadius: 6,
-    marginBottom: 4,
-    gap: 6,
-  },
+     recentSearchItem: {
+     flexDirection: 'row',
+     alignItems: 'center',
+     paddingVertical: 8,
+     paddingHorizontal: 10,
+     backgroundColor: '#f9fafb',
+     borderRadius: 6,
+     marginBottom: 4,
+   },
+   recentSearchContent: {
+     flex: 1,
+     flexDirection: 'row',
+     alignItems: 'center',
+     gap: 6,
+   },
+   recentSearchDeleteButton: {
+     padding: 4,
+     borderRadius: 12,
+     backgroundColor: '#e5e7eb',
+   },
   recentSearchText: {
     fontSize: 13,
     color: '#374151',
@@ -829,6 +986,57 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: '#9ca3af',
   },
+  similarContentItem: {
+    backgroundColor: '#f8fafc',
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: '#e2e8f0',
+  },
+  similarContentHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  similarityBadge: {
+    backgroundColor: '#10b981',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
+  similarityText: {
+    fontSize: 12,
+    color: '#fff',
+    fontWeight: '600',
+  },
+  similarContentType: {
+    fontSize: 12,
+    color: '#6b7280',
+    textTransform: 'uppercase',
+    fontWeight: '500',
+  },
+  similarContentTitle: {
+    fontSize: 16,
+    color: '#1f2937',
+    fontWeight: '600',
+    marginBottom: 8,
+    lineHeight: 22,
+  },
+  similarContentTags: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 6,
+  },
+  similarContentTag: {
+    fontSize: 12,
+    color: '#8b5cf6',
+    backgroundColor: '#f3f4f6',
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 12,
+  },
   emptyState: {
     alignItems: 'center',
     paddingVertical: 24,
@@ -847,4 +1055,5 @@ const styles = StyleSheet.create({
     lineHeight: 16,
     paddingHorizontal: 16,
   },
+
 });

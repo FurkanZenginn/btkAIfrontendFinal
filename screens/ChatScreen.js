@@ -17,8 +17,10 @@ import {
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import * as ImagePicker from 'expo-image-picker';
+// OCR simülasyonu - gerçek OCR yerine kullanıcıdan metin isteyeceğiz
 import { aiService } from '../services';
 import { FONT_STYLES, FONTS, FONT_WEIGHTS, FONT_SIZES } from '../utils/fonts';
+import authService from '../services/authService';
 
 const TypingIndicator = () => {
   const dot1 = useRef(new Animated.Value(0)).current;
@@ -117,7 +119,7 @@ const TypingIndicator = () => {
   );
 };
 
-const MessageBubble = ({ message, time, isBot = false, image = null, isHapBilgi = false, isHapBilgiQuestion = false, questionData = null, onHapBilgiConfirm = null, onHapBilgiReject = null }) => {
+const MessageBubble = ({ message, time, isBot = false, image = null, isHapBilgi = false, isHapBilgiQuestion = false, questionData = null, onHapBilgiConfirm = null, onHapBilgiReject = null, isHapBilgiSuccess = false, hapBilgiData = null, navigation = null }) => {
   console.log('🔍 MessageBubble render:', { message, isHapBilgiQuestion, questionData });
   return (
   <View style={[
@@ -140,13 +142,38 @@ const MessageBubble = ({ message, time, isBot = false, image = null, isHapBilgi 
       isBot ? styles.botBubble : styles.userBubble,
       isHapBilgi && styles.hapBilgiBubble
     ]}>
-      <Text style={[
-        styles.messageText,
-        isBot ? styles.botText : styles.userText,
-        isHapBilgi && styles.hapBilgiText
-      ]}>
-        {message}
-      </Text>
+      {/* Hap Bilgi Başarı Mesajı - Tıklanabilir */}
+      {isHapBilgiSuccess ? (
+        <TouchableOpacity
+          style={styles.hapBilgiSuccessContainer}
+          onPress={() => {
+            console.log('🎯 Hap Bilgi başarı mesajına tıklandı, HapBilgiScreen\'e yönlendiriliyor');
+            if (navigation) {
+              navigation.navigate('Tools', { screen: 'HapBilgi' });
+            }
+          }}
+        >
+          <Text style={[
+            styles.messageText,
+            isBot ? styles.botText : styles.userText,
+            isHapBilgi && styles.hapBilgiText,
+            styles.hapBilgiSuccessText
+          ]}>
+            {message}
+          </Text>
+          <View style={styles.hapBilgiSuccessIcon}>
+            <Ionicons name="arrow-forward" size={16} color="#8b5cf6" />
+          </View>
+        </TouchableOpacity>
+      ) : (
+        <Text style={[
+          styles.messageText,
+          isBot ? styles.botText : styles.userText,
+          isHapBilgi && styles.hapBilgiText
+        ]}>
+          {message}
+        </Text>
+      )}
       {image && (
         <Image source={{ uri: image }} style={styles.messageImage} />
       )}
@@ -264,7 +291,26 @@ export default function ChatScreen({ navigation }) {
         setConversationTitle(savedTitle);
       }
       
-      if (savedHistory) {
+      // Kullanıcıya özel konuşma geçmişi yükle
+      const user = await authService.getUser();
+      const userId = user?._id;
+      
+      if (userId && savedHistory) {
+        // Kullanıcıya özel key kullan
+        const userHistoryKey = `conversation_history_${userId}`;
+        const userHistory = await AsyncStorage.getItem(userHistoryKey);
+        
+        if (userHistory) {
+          const parsedHistory = JSON.parse(userHistory);
+          console.log('📚 Kullanıcıya özel conversation history loaded:', parsedHistory.length, 'items');
+          setConversationHistory(parsedHistory);
+        } else {
+          // Eski genel geçmişi kullan
+          const parsedHistory = JSON.parse(savedHistory);
+          console.log('📚 Genel conversation history loaded:', parsedHistory.length, 'items');
+          setConversationHistory(parsedHistory);
+        }
+      } else if (savedHistory) {
         const parsedHistory = JSON.parse(savedHistory);
         setConversationHistory(parsedHistory);
       }
@@ -276,10 +322,28 @@ export default function ChatScreen({ navigation }) {
   const saveConversation = async (messages, history) => {
     try {
       const AsyncStorage = require('@react-native-async-storage/async-storage').default;
-      await AsyncStorage.setItem('conversation_messages', JSON.stringify(messages));
-      await AsyncStorage.setItem('conversation_history', JSON.stringify(history));
-      await AsyncStorage.setItem('conversation_title', conversationTitle);
-      console.log('💾 Conversation saved to storage');
+      
+      // Kullanıcı ID'sini al
+      const user = await authService.getUser();
+      const userId = user?._id;
+      
+      if (userId) {
+        // Kullanıcıya özel key'ler kullan
+        const userMessagesKey = `conversation_messages_${userId}`;
+        const userHistoryKey = `conversation_history_${userId}`;
+        const userTitleKey = `conversation_title_${userId}`;
+        
+        await AsyncStorage.setItem(userMessagesKey, JSON.stringify(messages));
+        await AsyncStorage.setItem(userHistoryKey, JSON.stringify(history));
+        await AsyncStorage.setItem(userTitleKey, conversationTitle);
+        console.log('💾 Kullanıcıya özel conversation saved to storage');
+      } else {
+        // Genel key'ler kullan
+        await AsyncStorage.setItem('conversation_messages', JSON.stringify(messages));
+        await AsyncStorage.setItem('conversation_history', JSON.stringify(history));
+        await AsyncStorage.setItem('conversation_title', conversationTitle);
+        console.log('💾 Genel conversation saved to storage');
+      }
     } catch (error) {
       console.error('Sohbet kaydetme hatası:', error);
     }
@@ -578,6 +642,49 @@ export default function ChatScreen({ navigation }) {
     }
   };
 
+  // Kamera ile fotoğraf çekme fonksiyonu
+  const takePhoto = async () => {
+    try {
+      // Kamera izinlerini kontrol et
+      const { status } = await ImagePicker.requestCameraPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('İzin Gerekli', 'Kamera erişim izni gerekiyor.');
+        return;
+      }
+
+      // Kamera ile fotoğraf çek
+      const result = await ImagePicker.launchCameraAsync({
+        allowsEditing: true,
+        aspect: [4, 3],
+        quality: 0.8,
+      });
+
+      if (!result.canceled && result.assets[0]) {
+        setSelectedImage(result.assets[0]);
+        console.log('📸 Photo taken:', result.assets[0].uri);
+        
+        // OCR seçeneği sun
+        Alert.alert(
+          'Fotoğraf Çekildi 📸',
+          'Bu fotoğraftan metin çıkarmak istiyor musunuz?',
+          [
+            {
+              text: 'Evet, Metin Çıkar',
+              onPress: () => extractTextFromImage(result.assets[0].uri)
+            },
+            {
+              text: 'Hayır, Sadece Fotoğraf',
+              style: 'cancel'
+            }
+          ]
+        );
+      }
+    } catch (error) {
+      console.error('Camera error:', error);
+      Alert.alert('Hata', 'Fotoğraf çekilirken bir hata oluştu.');
+    }
+  };
+
   // Görsel seçme fonksiyonu
   const pickImage = async () => {
     try {
@@ -599,6 +706,22 @@ export default function ChatScreen({ navigation }) {
       if (!result.canceled && result.assets[0]) {
         setSelectedImage(result.assets[0]);
         console.log('📸 Image selected:', result.assets[0].uri);
+        
+        // OCR seçeneği sun
+        Alert.alert(
+          'Görsel Seçildi 📸',
+          'Bu görselden metin çıkarmak istiyor musunuz?',
+          [
+            {
+              text: 'Evet, Metin Çıkar',
+              onPress: () => extractTextFromImage(result.assets[0].uri)
+            },
+            {
+              text: 'Hayır, Sadece Görsel',
+              style: 'cancel'
+            }
+          ]
+        );
       }
     } catch (error) {
       console.error('Image picker error:', error);
@@ -609,6 +732,60 @@ export default function ChatScreen({ navigation }) {
   // Görsel kaldırma fonksiyonu
   const removeImage = () => {
     setSelectedImage(null);
+  };
+
+  // Basit OCR simülasyonu - kullanıcıdan metin ister
+  const extractTextFromImage = async (imageUri) => {
+    try {
+      console.log('🔍 OCR simülasyonu başlatılıyor:', imageUri);
+      
+      // Kullanıcıya bilgi ver
+      const infoMessage = {
+        id: messages.length + 1,
+        message: '📸 Görsel seçildi!\n\n💡 Bu görseldeki metni yazmanız gerekiyor. OCR özelliği yakında eklenecek!',
+        time: new Date().toLocaleTimeString('tr-TR', { 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        }),
+        isBot: true,
+      };
+      setMessages(prev => [...prev, infoMessage]);
+      scrollToBottom();
+
+      // Kullanıcıya bilgi ver
+      Alert.alert(
+        'Görsel Seçildi 📸',
+        'Bu görseldeki metni yazmanız gerekiyor. OCR özelliği yakında eklenecek!\n\nMetni input alanına yazabilirsiniz.',
+        [
+          {
+            text: 'Tamam',
+            onPress: () => {
+              // Input'a odaklan
+              // Bu kısım otomatik olarak input'a odaklanacak
+            }
+          }
+        ]
+      );
+
+      return 'OCR simülasyonu tamamlandı';
+    } catch (error) {
+      console.error('❌ OCR simülasyonu hatası:', error);
+      
+      // Hata mesajı
+      const errorMessage = {
+        id: messages.length + 1,
+        message: '❌ Görsel işleme sırasında hata oluştu. Lütfen metin olarak yazın.',
+        time: new Date().toLocaleTimeString('tr-TR', { 
+          hour: '2-digit', 
+          minute: '2-digit' 
+        }),
+        isBot: true,
+      };
+      setMessages(prev => [...prev, errorMessage]);
+      scrollToBottom();
+      
+      return null;
+    }
   };
 
 
@@ -938,13 +1115,14 @@ Bu içerik için uygun etiketler:`;
         // Başarı mesajı
         const successMessage = {
           id: generateUniqueId(),
-          message: `✅ Hap Bilgi oluşturuldu! Bellekte kaydedildi ve Mesajlar sayfasından görüntüleyebilirsin.${tagsText}`,
+          message: `✅ Hap Bilgi oluşturuldu! Bellekte kaydedildi. Hap Bilgi sayfasından görüntüleyebilirsin.${tagsText}`,
           time: new Date().toLocaleTimeString('tr-TR', { 
             hour: '2-digit', 
             minute: '2-digit' 
           }),
           isBot: true,
           isHapBilgiSuccess: true,
+          hapBilgiData: hapBilgiResult.data, // Hap Bilgi verisini ekle
         };
         setMessages(prev => [...prev, successMessage]);
         scrollToBottom();
@@ -1074,6 +1252,9 @@ Bu içerik için uygun etiketler:`;
               questionData={message.questionData}
               onHapBilgiConfirm={handleHapBilgiConfirm}
               onHapBilgiReject={handleHapBilgiReject}
+              isHapBilgiSuccess={message.isHapBilgiSuccess}
+              hapBilgiData={message.hapBilgiData}
+              navigation={navigation}
             />
           ))}
           {isTyping && <TypingIndicator />}
@@ -1099,6 +1280,10 @@ Bu içerik için uygun etiketler:`;
         {/* Input Area */}
         <View style={styles.inputContainer}>
           <TouchableOpacity style={styles.attachButton} onPress={pickImage}>
+            <Ionicons name="images" size={24} color={selectedImage ? "#8b5cf6" : "#9ca3af"} />
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.attachButton} onPress={takePhoto}>
             <Ionicons name="camera" size={24} color={selectedImage ? "#8b5cf6" : "#9ca3af"} />
           </TouchableOpacity>
           
@@ -1599,6 +1784,24 @@ const styles = StyleSheet.create({
   },
   hapBilgiText: {
     color: '#007bff', // Hap bilgi mesajları için farklı bir metin rengi
+  },
+  hapBilgiSuccessContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: '#f0f9ff',
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: '#0ea5e9',
+  },
+  hapBilgiSuccessText: {
+    color: '#0c4a6e',
+    fontWeight: '600',
+    flex: 1,
+  },
+  hapBilgiSuccessIcon: {
+    marginLeft: 8,
   },
   messageTime: {
     ...FONT_STYLES.caption,

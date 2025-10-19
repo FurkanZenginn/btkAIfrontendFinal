@@ -11,11 +11,13 @@ import {
   ActivityIndicator,
   RefreshControl,
   Dimensions,
+  Alert,
 } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { LinearGradient } from 'expo-linear-gradient';
 import { useAuth } from '../contexts/AuthContext';
 import userService from '../services/userService';
+import SimilarQuestionsModal from '../components/SimilarQuestionsModal';
 
 import { FONT_STYLES, FONTS, FONT_WEIGHTS, FONT_SIZES } from '../utils/fonts';
 import gamificationService from '../services/gamificationService';
@@ -28,9 +30,11 @@ export default function ToolsScreen({ navigation }) {
   const [leaderboard, setLeaderboard] = useState([]);
   const [learningStats, setLearningStats] = useState([]);
   const [profileData, setProfileData] = useState(null);
+  const [similarQuestionsModalVisible, setSimilarQuestionsModalVisible] = useState(false);
+  const [currentHapBilgi, setCurrentHapBilgi] = useState(null);
 
 
-  // Öğrenme istatistikleri (varsayılan)
+  // Öğrenme istatistikleri - Sadece gerçek veri kullan
   const defaultStats = [
     { label: 'Çözülen Soru', value: '0', icon: 'checkmark-circle-outline', color: '#10b981' },
     { label: 'Zayıf Konu', value: '0', icon: 'alert-circle-outline', color: '#ef4444' },
@@ -60,7 +64,7 @@ export default function ToolsScreen({ navigation }) {
     },
   ];
 
-  // Puan liderliği (varsayılan veri)
+  // Puan liderliği - Sadece gerçek veri kullan
   const defaultLeaderboard = [];
 
   // Önerilen konular (zayıf konulara göre)
@@ -190,7 +194,7 @@ export default function ToolsScreen({ navigation }) {
     } catch (error) {
       console.error('Veri yüklenirken hata:', error);
       setLearningStats(defaultStats);
-      setLeaderboard(defaultLeaderboard);
+      setLeaderboard([]);
     } finally {
       setLoading(false);
     }
@@ -200,6 +204,20 @@ export default function ToolsScreen({ navigation }) {
     setRefreshing(true);
     await loadData();
     setRefreshing(false);
+  };
+
+  // Benzer sorular butonuna tıklandığında
+  const handleSimilarQuestionsPress = () => {
+    // Örnek Hap Bilgi verisi (gerçek uygulamada bu veri HapBilgiScreen'den gelir)
+    const sampleHapBilgi = {
+      id: 'sample_hap_bilgi',
+      title: 'Matematik Formülleri',
+      content: 'Matematik dersinde formül ezberleme konusunda zorlanıyorum. Hangi yöntemler kullanabilirim?',
+      tags: ['matematik', 'formül', 'ezberleme', 'öğrenme']
+    };
+    
+    setCurrentHapBilgi(sampleHapBilgi);
+    setSimilarQuestionsModalVisible(true);
   };
 
 
@@ -284,6 +302,13 @@ export default function ToolsScreen({ navigation }) {
                           <Ionicons name="checkmark-circle" size={12} color="#fff" />
                           <Text style={styles.featureText}>Hızlı Öğrenme</Text>
                         </View>
+                        <TouchableOpacity 
+                          style={styles.similarQuestionsButton}
+                          onPress={() => handleSimilarQuestionsPress()}
+                        >
+                          <Ionicons name="search-outline" size={14} color="#fff" />
+                          <Text style={styles.similarQuestionsText}>Benzer Sorular</Text>
+                        </TouchableOpacity>
                       </View>
                     )}
                     {card.id === 'study-planner' && (
@@ -459,8 +484,17 @@ export default function ToolsScreen({ navigation }) {
         
 
       </ScrollView>
-
         
+        {/* Benzer Sorular Modal */}
+        <SimilarQuestionsModal
+          visible={similarQuestionsModalVisible}
+          onClose={() => setSimilarQuestionsModalVisible(false)}
+          hapBilgiId={currentHapBilgi?.id}
+          hapBilgiTitle={currentHapBilgi?.title}
+          hapBilgiContent={currentHapBilgi?.content}
+          hapBilgiTags={currentHapBilgi?.tags}
+          navigation={navigation}
+        />
     </SafeAreaView>
   );
 }
@@ -592,6 +626,23 @@ const styles = StyleSheet.create({
     fontSize: 8,
     color: 'rgba(255, 255, 255, 0.9)',
     fontWeight: '500',
+  },
+  similarQuestionsButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: 'rgba(255, 255, 255, 0.2)',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 16,
+    marginTop: 8,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
+  },
+  similarQuestionsText: {
+    fontSize: 11,
+    color: '#fff',
+    marginLeft: 6,
+    fontWeight: '600',
   },
   cardTitle: {
     fontSize: 16,

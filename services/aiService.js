@@ -25,6 +25,54 @@ const API_BASE_URL = getApiBaseUrl();
 console.log('🌐 AI Service API Base URL:', API_BASE_URL);
 
 class AIService {
+  // AI cevabını kullanıcı dostu hale getir
+  userFriendlyResponse(aiResponse) {
+    try {
+      if (!aiResponse || typeof aiResponse !== 'string') {
+        return aiResponse;
+      }
+
+      let filteredResponse = aiResponse;
+
+      // Sistem talimatlarını ve teknik detayları kaldır
+      const patternsToRemove = [
+        // Matematik formatı talimatları
+        /📐 MATEMATİK FORMATI TALİMATLARI:.*?(?=\n\n|\n$|$)/gs,
+        // Sistem açıklamaları
+        /Bu yapı genellikle.*?tasarlandı/g,
+        /Bu yapı.*?belirli bir problemi çözmek.*?açıklamak.*?tasarlandı/gs,
+        // AI'nin kendi talimatlarını açıklaması
+        /Ancak, matematik.*?belirtilen format.*?talimatlarına uyarak.*?/gs,
+        // Gereksiz teknik açıklamalar
+        /📋.*?talimatları.*?/g,
+        /🔧.*?sistem.*?/g,
+        // Boş satırları temizle
+        /\n\s*\n\s*\n/g,
+        // Başta ve sonda fazla boşluk
+        /^\s+|\s+$/g
+      ];
+
+      patternsToRemove.forEach(pattern => {
+        filteredResponse = filteredResponse.replace(pattern, '');
+      });
+
+      // Basit selamlaşma için özel cevap
+      if (filteredResponse.toLowerCase().includes('merhaba') && filteredResponse.length < 100) {
+        return 'Merhaba! Size nasıl yardımcı olabilirim?';
+      }
+
+      // Cevap çok kısaysa ve anlamsızsa, basit bir cevap ver
+      if (filteredResponse.trim().length < 20) {
+        return 'Merhaba! Size nasıl yardımcı olabilirim?';
+      }
+
+      return filteredResponse.trim();
+    } catch (error) {
+      console.error('User friendly response error:', error);
+      return aiResponse; // Hata durumunda orijinal cevabı döndür
+    }
+  }
+
   // AI ile soru sor
   async askQuestion(question, context = '') {
     try {
@@ -33,11 +81,17 @@ class AIService {
       
       const token = await authService.getToken();
       console.log('🤖 AI Service - Token:', token ? 'Token var' : 'Token yok');
+
+      // Kullanıcı ID'sini al
+      const user = await authService.getUser();
+      const userId = user?._id;
+      console.log('🤖 AI Service - User ID:', userId);
       
       // Backend'in beklediği format: prompt + responseType
       const requestData = { 
         prompt: question, 
-        responseType: "step-by-step" 
+        responseType: "step-by-step",
+        userId: userId // Kullanıcı ID'sini ekle
       };
       console.log('🤖 AI Service - Request data:', requestData);
       
@@ -52,6 +106,12 @@ class AIService {
           token
         );
         clearTimeout(timeoutId);
+
+        // AI cevabını kullanıcı dostu hale getir
+        if (response.success && response.data && response.data.aiResponse) {
+          response.data.aiResponse = this.userFriendlyResponse(response.data.aiResponse);
+        }
+
         return response;
       } catch (error) {
         clearTimeout(timeoutId);
@@ -79,6 +139,12 @@ class AIService {
         {},
         token
       );
+
+      // AI cevabını kullanıcı dostu hale getir
+      if (response.success && response.data && response.data.aiResponse) {
+        response.data.aiResponse = this.userFriendlyResponse(response.data.aiResponse);
+      }
+
       return response;
     } catch (error) {
       console.error('Analyze post error:', error);
@@ -95,6 +161,12 @@ class AIService {
         { topic, context },
         token
       );
+
+      // AI cevabını kullanıcı dostu hale getir
+      if (response.success && response.data && response.data.aiResponse) {
+        response.data.aiResponse = this.userFriendlyResponse(response.data.aiResponse);
+      }
+
       return response;
     } catch (error) {
       console.error('Get hap bilgi error:', error);
@@ -152,6 +224,12 @@ Format: "💡 [Kısa analiz ve öneri]"
              
              clearTimeout(timeoutId);
              console.log('🤖 AI Comment Analysis - Response:', response);
+
+             // AI cevabını kullanıcı dostu hale getir
+             if (response.success && response.data && response.data.aiResponse) {
+               response.data.aiResponse = this.userFriendlyResponse(response.data.aiResponse);
+             }
+
              return response;
            } catch (timeoutError) {
              clearTimeout(timeoutId);
@@ -196,6 +274,11 @@ Format: "💡 [Kısa analiz ve öneri]"
       const token = await authService.getToken();
       console.log('🚀 AI Fast Service - Token:', token ? 'Token var' : 'Token yok');
 
+      // Kullanıcı ID'sini al
+      const user = await authService.getUser();
+      const userId = user?._id;
+      console.log('🚀 AI Fast Service - User ID:', userId);
+
       // Matematik formülleri için gelişmiş prompt iyileştirme
       let enhancedPrompt = prompt;
       
@@ -232,7 +315,8 @@ Format: "💡 [Kısa analiz ve öneri]"
         prompt: enhancedPrompt,
         responseType: 'simple', // Basit yanıt türü
         imageURL: imageURL || null,
-        conversationHistory: conversationHistory || []
+        conversationHistory: conversationHistory || [],
+        userId: userId // Kullanıcı ID'sini ekle
       };
       console.log('🚀 AI Fast Service - Request data:', requestData);
 
@@ -257,6 +341,11 @@ Format: "💡 [Kısa analiz ve öneri]"
         console.log('🚀 AI Fast Service - Full response:', result);
         console.log('🚀 AI Fast Service - Response status:', response.status);
         console.log('🚀 AI Fast Service - Response headers:', response.headers);
+        
+        // AI cevabını kullanıcı dostu hale getir
+        if (result.success && result.data && result.data.aiResponse) {
+          result.data.aiResponse = this.userFriendlyResponse(result.data.aiResponse);
+        }
         
         // Backend'den gelen response'u doğrudan döndür
         return result;
@@ -298,11 +387,17 @@ Format: "💡 [Kısa analiz ve öneri]"
         return { success: false, error: 'Giriş yapmanız gerekiyor.' };
       }
 
+      // Kullanıcı ID'sini al
+      const user = await authService.getUser();
+      const userId = user?._id;
+      console.log('📚 Hap Bilgi - User ID:', userId);
+
       // AI'ya hap bilgi önerileri için özel istek
       const requestData = {
         prompt,
         responseType: 'step-by-step', // Backend'in beklediği responseType
-        requestType: 'hap-bilgi-suggestions' // Ek bilgi
+        requestType: 'hap-bilgi-suggestions', // Ek bilgi
+        userId: userId // Kullanıcı ID'sini ekle
       };
 
       const response = await api.post(
@@ -310,6 +405,11 @@ Format: "💡 [Kısa analiz ve öneri]"
         requestData,
         token
       );
+
+      // AI cevabını kullanıcı dostu hale getir
+      if (response.success && response.data && response.data.aiResponse) {
+        response.data.aiResponse = this.userFriendlyResponse(response.data.aiResponse);
+      }
 
       console.log('📚 Hap bilgi suggestions response:', response);
       return response;
@@ -384,6 +484,11 @@ Format: "💡 [Kısa analiz ve öneri]"
         '/ai/improve-prompt',
         { prompt }
       );
+
+      // AI cevabını kullanıcı dostu hale getir
+      if (response.success && response.data && response.data.aiResponse) {
+        response.data.aiResponse = this.userFriendlyResponse(response.data.aiResponse);
+      }
       
       console.log('✨ AI Improve Prompt - Response:', response);
       return response;
@@ -407,6 +512,12 @@ Format: "💡 [Kısa analiz ve öneri]"
         requestData,
         token
       );
+
+      // AI cevabını kullanıcı dostu hale getir
+      if (response.success && response.data && response.data.aiResponse) {
+        response.data.aiResponse = this.userFriendlyResponse(response.data.aiResponse);
+      }
+
       return response;
     } catch (error) {
       console.error('Ask with options error:', error);
@@ -423,6 +534,12 @@ Format: "💡 [Kısa analiz ve öneri]"
         { imageURL, analysisType },
         token
       );
+
+      // AI cevabını kullanıcı dostu hale getir
+      if (response.success && response.data && response.data.aiResponse) {
+        response.data.aiResponse = this.userFriendlyResponse(response.data.aiResponse);
+      }
+
       return response;
     } catch (error) {
       console.error('Analyze image error:', error);
@@ -439,6 +556,12 @@ Format: "💡 [Kısa analiz ve öneri]"
         {},
         token
       );
+
+      // AI cevabını kullanıcı dostu hale getir
+      if (response.success && response.data && response.data.aiResponse) {
+        response.data.aiResponse = this.userFriendlyResponse(response.data.aiResponse);
+      }
+
       return response;
     } catch (error) {
       console.error('User analysis error:', error);
@@ -470,6 +593,59 @@ Format: "💡 [Kısa analiz ve öneri]"
         details: error.message || 'Unknown error',
         status: error.response?.status || 'No status'
       };
+    }
+  }
+
+  // Benzerlik analizi yap (soruları üretme, sadece analiz et)
+  async analyzeSimilarity(questionData) {
+    try {
+      console.log('🔍 Analyzing similarity for:', questionData);
+      
+      const token = await authService.getToken();
+      if (!token) {
+        return { success: false, error: 'Giriş yapmanız gerekiyor.' };
+      }
+
+      // Kullanıcı ID'sini al
+      const user = await authService.getUser();
+      const userId = user?._id;
+      console.log('🔍 Similarity Analysis - User ID:', userId);
+
+      // AI'ya sadece benzerlik analizi yap
+      const requestData = {
+        prompt: `Benzerlik analizi görevi:
+        
+MEVCUT SORU: ${questionData.question}
+ETİKETLER: ${questionData.tags?.join(', ') || 'Yok'}
+
+Bu soru için benzerlik kriterlerini analiz et:
+1. Konu benzerliği (%)
+2. Zorluk seviyesi benzerliği (%)
+3. Etiket benzerliği (%)
+4. Genel benzerlik skoru (%)
+
+Sadece analiz sonucunu döndür, yeni soru üretme.`,
+        responseType: 'structured',
+        requestType: 'similarity-analysis',
+        userId: userId // Kullanıcı ID'sini ekle
+      };
+
+      const response = await api.post(
+        '/ai/ask-with-options',
+        requestData,
+        token
+      );
+
+      // AI cevabını kullanıcı dostu hale getir
+      if (response.success && response.data && response.data.aiResponse) {
+        response.data.aiResponse = this.userFriendlyResponse(response.data.aiResponse);
+      }
+
+      console.log('🔍 Similarity analysis response:', response);
+      return response;
+    } catch (error) {
+      console.error('Similarity analysis error:', error);
+      return { success: false, error: 'Benzerlik analizi yapılırken bir hata oluştu.' };
     }
   }
 

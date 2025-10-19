@@ -31,18 +31,29 @@ class CommentsService {
   }
 
   // Yeni yorum ekle
-  async createComment(postId, commentText) {
+  async createComment(postId, commentText, parentCommentId = null, isFromGemini = false) {
     try {
       const token = await authService.getToken();
       console.log('💬 Create comment - Token:', token ? 'Token var' : 'Token yok');
       console.log('💬 Create comment - Post ID:', postId);
       console.log('💬 Create comment - Comment:', commentText);
+      console.log('💬 Create comment - Parent Comment ID:', parentCommentId);
+      console.log('💬 Create comment - Is From Gemini:', isFromGemini);
+      
+      // Request body'yi hazırla
+      const requestBody = { text: commentText };
+      if (parentCommentId) {
+        requestBody.parentCommentId = parentCommentId;
+      }
+      if (isFromGemini) {
+        requestBody.isFromGemini = true;
+      }
       
       // Çalışan endpoint'i direkt kullan
       console.log('💬 Create comment - Using working endpoint:', API_ENDPOINTS.COMMENTS.CREATE_REAL(postId));
       const response = await api.post(
         API_ENDPOINTS.COMMENTS.CREATE_REAL(postId),
-        { text: commentText }, // Backend 'text' field'ını bekliyor
+        requestBody, // Backend 'text' field'ını bekliyor
         token
       );
       
